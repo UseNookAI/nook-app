@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -126,8 +126,9 @@ impl EnginePackages {
             versions,
             packages,
             install_lock: tokio::sync::Mutex::new(()),
-            own_locks: [EngineComponent::Ffmpeg, EngineComponent::Pdfium]
+            own_locks: EngineComponent::ALL
                 .into_iter()
+                .filter(|c| c.one_for_all())
                 .map(|c| (c, tokio::sync::Mutex::new(())))
                 .collect(),
         })
@@ -156,9 +157,10 @@ impl EnginePackages {
 
     /// Directory holding a component's binaries for a backend: `runtime/bin/<backend>` for
     /// llama, `runtime/bin/<backend>/<component>` for the others (the backend its build runs
-    /// on), and `runtime/bin/ffmpeg` and `runtime/bin/pdfium`, one for all.
+    /// on), and `runtime/bin/<component>` for those with one build for all (FFmpeg, PDFium,
+    /// Pandoc, LibreOffice).
     pub fn dir(&self, component: EngineComponent, backend: Backend) -> PathBuf {
-        if matches!(component, EngineComponent::Ffmpeg | EngineComponent::Pdfium) {
+        if component.one_for_all() {
             return self.home.runtime_dir().join("bin").join(component.id());
         }
         let root = self.home.bin_dir(component.runs_on(backend).id());
@@ -283,6 +285,9 @@ impl EnginePackages {
                 }
                 extract(zip, &staging)?;
             }
+            if component == EngineComponent::Office {
+                settle_office(&staging)?;
+            }
             let marker = serde_json::json!({
                 "version": version,
                 "backend": backend.id(),
@@ -339,6 +344,9 @@ pub fn extract(zip: &Path, into: &Path) -> Result<()> {
     let name = zip.to_string_lossy().to_lowercase();
     if name.ends_with(".tgz") || name.ends_with(".tar.gz") {
         return extract_tgz(zip, into);
+    }
+    if name.ends_with(".msi") {
+        return extract_msi(zip, into);
     }
     let file =
         std::fs::File::open(zip).with_context(|| format!("Could not read {}", zip.display()))?;
@@ -481,6 +489,78 @@ fn common_root_dir<R: std::io::Read + std::io::Seek>(
         }
     }
     root
+}
+
+/// LibreOffice as `msiexec /a` leaves it, made to run from its folder: the Visual C++ runtime it
+/// would install into Windows goes beside its programs (where Windows looks first), and the copy
+/// of the package's database goes.
+fn settle_office(dir: &Path) -> Result<()> {
+    let program = dir.join("program");
+    for from in ["System64", "System"] {
+        let Ok(entries) = std::fs::read_dir(dir.join(from)) else {
+            continue;
+        };
+        for e in entries.flatten() {
+            let to = program.join(e.file_name());
+            if e.path()
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("dll"))
+                && !to.exists()
+            {
+                std::fs::copy(e.path(), &to)
+                    .with_context(|| format!("Could not copy {}", e.path().display()))?;
+            }
+        }
+    }
+    for e in std::fs::read_dir(dir)?.flatten() {
+        if e.path()
+            .extension()
+            .is_some_and(|x| x.eq_ignore_ascii_case("msi"))
+        {
+            let _ = std::fs::remove_file(e.path());
+        }
+    }
+    Ok(())
+}
+
+/// Unpacks a Windows installer package (LibreOffice's) the way an administrator makes a network
+/// image of it: `msiexec /a`, which only copies the files out. Nothing is installed or
+/// registered, and no rights beyond writing `into` are needed.
+fn extract_msi(msi: &Path, into: &Path) -> Result<()> {
+    std::fs::create_dir_all(into)
+        .with_context(|| format!("Could not create {}", into.display()))?;
+    let log = into.with_extension("msi-log.txt");
+    let status = std::process::Command::new("msiexec")
+        .arg("/a")
+        .arg(msi)
+        .arg("/qn")
+        .arg(format!("TARGETDIR={}", into.display()))
+        .arg("/l*")
+        .arg(&log)
+        .status()
+        .context("Could not start Windows Installer (msiexec)")?;
+    match status.code() {
+        Some(0) => {
+            let _ = std::fs::remove_file(&log);
+            Ok(())
+        }
+        code => {
+            let tail = std::fs::read_to_string(&log)
+                .map(|l| {
+                    l.lines()
+                        .rev()
+                        .filter(|x| !x.trim().is_empty())
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join(" / ")
+                })
+                .unwrap_or_default();
+            bail!(
+                "Windows Installer could not unpack {} (exit code {code:?}). {tail}",
+                msi.display()
+            )
+        }
+    }
 }
 
 pub(crate) fn delete_tree(dir: &Path) -> Result<()> {

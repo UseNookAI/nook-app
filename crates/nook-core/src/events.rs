@@ -22,6 +22,10 @@ pub mod topic {
     pub const FLOWS: &str = "flows";
     /// The PDF editor's engine download.
     pub const PDF: &str = "pdf";
+    /// The document converter: its jobs and its engines' download.
+    pub const CONVERT: &str = "convert";
+    /// The Nooklets' finder: its download.
+    pub const NOOKLETS: &str = "nooklets";
     /// Voice prompt: recording level and transcription.
     pub const SPEECH: &str = "speech";
     /// Settings changed.

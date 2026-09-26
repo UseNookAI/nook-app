@@ -152,6 +152,34 @@
         ]
       }
     },
+    "pandoc": {
+      "version": "3.11",
+      "source": "https://github.com/jgm/pandoc/releases/tag/3.11",
+      "backends": {
+        "any": [
+          {
+            "name": "pandoc-3.11-windows-x86_64.zip",
+            "url": "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-windows-x86_64.zip",
+            "sha256": "2ab72baf2399450e148ddf7a2a8689806c42e1bba71862b57e220fd9b8456d3d",
+            "bytes": 41761100
+          }
+        ]
+      }
+    },
+    "office": {
+      "version": "26.2.6.3",
+      "source": "https://www.libreoffice.org/download/release-notes/",
+      "backends": {
+        "any": [
+          {
+            "name": "LibreOffice_26.2.6.3_Win_x86-64.msi",
+            "url": "https://downloadarchive.documentfoundation.org/libreoffice/old/26.2.6.3/win/x86_64/LibreOffice_26.2.6.3_Win_x86-64.msi",
+            "sha256": "f9877032fd908beb9c0ddf06df4af5c2e85f419c42e14876c4cce5aae5fb2660",
+            "bytes": 373252096
+          }
+        ]
+      }
+    },
     "pdfium": {
       "version": "chromium/7881",
       "source": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7881",

@@ -1,6 +1,6 @@
 /**
  * The window's title strip (NookTopBar.kt). It sits on the canvas colour together with the sidebar,
- * so the only things drawn are the brand mark, the sidebar toggle, the pages (Chat, Code, Flows:
+ * so the only things drawn are the brand mark, the sidebar toggle, the pages (Chat, Code, Nooklets:
  * `nav`), and at the right the update badge, the light | dark switch and the window controls. The whole strip drags the window
  * (`data-tauri-drag-region`; a double-click maximises); its passive parts let clicks through to it.
  *

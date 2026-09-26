@@ -45,6 +45,15 @@
             what Nook does not read itself and to put a translated video back together. GNU Lesser General Public License,
             version 2.1 or later; the build's LICENSE.txt is kept beside it in the runtime folder.
             <a href="https://ffmpeg.org">ffmpeg.org</a>, <a href="https://github.com/BtbN/FFmpeg-Builds">github.com/BtbN/FFmpeg-Builds</a></li>
+        <li><strong>Pandoc</strong> 3.11 — Copyright (C) 2006-2026 John MacFarlane and the Pandoc contributors. GNU
+            General Public License, version 2 or later. The document converter runs it, unmodified, as a separate program
+            for Markdown, LaTeX, e-books, web pages and the other text formats; its source is at
+            <a href="https://github.com/jgm/pandoc">github.com/jgm/pandoc</a> and <a href="https://pandoc.org">pandoc.org</a>.</li>
+        <li><strong>LibreOffice</strong> 26.2 — Copyright 2000-2026 LibreOffice contributors. Mozilla Public License 2.0
+            (with the licences of its parts, kept beside it in the runtime folder). The document converter runs it, unmodified,
+            as a separate program for Office files when Microsoft Office is not on the computer.
+            <a href="https://www.libreoffice.org">libreoffice.org</a>, source at
+            <a href="https://www.libreoffice.org/download/source-code/">libreoffice.org/download/source-code</a></li>
         <li><strong>NVIDIA CUDA runtime libraries</strong> (cudart, cuBLAS, cuBLASLt, and cuFFT for the voice engine),
             fetched with the CUDA build of the engines — NVIDIA Corporation, under the NVIDIA CUDA Toolkit End User License Agreement, which permits
             their redistribution with an application.
@@ -59,6 +68,12 @@
         Stability AI community licence for SD Turbo and SDXL Turbo); it is your use, so it is your licence
         to keep.
     </p>
+    <ul style="padding-left:22px;">
+        <li><strong>multilingual-e5-small</strong> — Copyright (c) 2023 Microsoft (Liang Wang, Nan Yang and others). MIT
+            License. The Nooklet finder: it reads a request in any language and picks the Nooklet for it. Downloaded on
+            first use, in the GGUF conversion by TwinSuns LLC.
+            <a href="https://huggingface.co/intfloat/multilingual-e5-small">huggingface.co/intfloat/multilingual-e5-small</a></li>
+    </ul>
 
     <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Java runtime</h2>
     <ul style="padding-left:22px;">
@@ -98,6 +113,8 @@
             libraries; you may replace them with your own versions and reverse engineer Nook as far as needed to
             debug such a change, as their licences require.</li>
         <li><strong>GNU General Public License 2 with the Classpath Exception</strong>: JLaTeXMath and its fonts.</li>
+        <li><strong>The document converter's tables</strong>: calamine (MIT), rust_xlsxwriter (MIT or Apache 2.0) and
+            csv (MIT or the Unlicense), by their authors on crates.io.</li>
         <li><strong>Other</strong>: junrar (the unRAR licence: its source may not be used to re-create the RAR
             compression algorithm), TagSoup (Apache 2.0), Brotli decoder (MIT).</li>
     </ul>
@@ -196,7 +213,9 @@
         the Mozilla Public License 2.0 (<a href="https://www.mozilla.org/MPL/2.0/">mozilla.org/MPL/2.0</a>), the
         GNU Lesser General Public License 2.1 (<a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html">gnu.org/licenses/old-licenses/lgpl-2.1</a>),
         the GNU General Public License 2 with the Classpath Exception
-        (<a href="https://openjdk.org/legal/gplv2+ce.html">openjdk.org/legal/gplv2+ce</a>) and the BSD licences
+        (<a href="https://openjdk.org/legal/gplv2+ce.html">openjdk.org/legal/gplv2+ce</a>), the GNU General Public
+        License 2 (<a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html">gnu.org/licenses/old-licenses/gpl-2.0</a>)
+        and the BSD licences
         are at the addresses given; the copies that apply are in each project's repository and, for the Java
         runtime, in <code>runtime/legal</code>.
     </p>

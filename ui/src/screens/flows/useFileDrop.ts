@@ -14,9 +14,14 @@ import { MEDIA_EXTENSIONS } from "../../api/flows";
  * whether files are being dragged over it now.
  */
 export function useFileDrop(enabled: boolean, onFile: (path: string) => void): { hover: boolean } {
+  return useFilesDrop(enabled, (paths) => onFile(paths[0]));
+}
+
+/** `useFileDrop` for every file dropped at once. */
+export function useFilesDrop(enabled: boolean, onFiles: (paths: string[]) => void): { hover: boolean } {
   const [hover, setHover] = useState(false);
-  const latest = useRef(onFile);
-  latest.current = onFile;
+  const latest = useRef(onFiles);
+  latest.current = onFiles;
 
   useEffect(() => {
     if (!enabled) {
@@ -34,7 +39,7 @@ export function useFileDrop(enabled: boolean, onFile: (path: string) => void): {
             else if (p.type === "leave") setHover(false);
             else if (p.type === "drop") {
               setHover(false);
-              if (p.paths.length > 0) latest.current(p.paths[0]);
+              if (p.paths.length > 0) latest.current(p.paths);
             }
           })
           .then((fn) => {
@@ -59,8 +64,8 @@ export function useFileDrop(enabled: boolean, onFile: (path: string) => void): {
     const drop = (e: DragEvent) => {
       e.preventDefault();
       setHover(false);
-      const file = e.dataTransfer?.files[0];
-      if (file) latest.current(`C:\\Users\\you\\Downloads\\${file.name}`);
+      const files = Array.from(e.dataTransfer?.files ?? []);
+      if (files.length > 0) latest.current(files.map((f) => `C:\\Users\\you\\Downloads\\${f.name}`));
     };
     window.addEventListener("dragover", over);
     window.addEventListener("dragleave", leave);

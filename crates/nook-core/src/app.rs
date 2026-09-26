@@ -21,8 +21,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 use crate::code::CodeService;
+use crate::convert::ConvertService;
 use crate::flow::FlowService;
 use crate::gateway::{Gateway, GatewayHandle};
+use crate::nooklets::Finder;
 use crate::pdf::{PdfEditor, PdfInstaller};
 use crate::runtime::api::WorkerRuntime;
 use crate::runtime::{Backend, EngineComponent};
@@ -61,6 +63,10 @@ pub struct Nook {
     pub pdf: Arc<PdfEditor>,
     /// The PDF editor's one download, its engine.
     pub pdf_setup: Arc<PdfInstaller>,
+    /// The document converter Nooklet.
+    pub convert: Arc<ConvertService>,
+    /// The finder: picks the Nooklet for a request typed in a sentence.
+    pub nooklets: Arc<Finder>,
     /// The loopback gateway while it runs (started in [`Nook::start`] on
     /// `gateway_port::choose()`, writing `home.gateway_file()`).
     gateway: Mutex<Option<GatewayHandle>>,
@@ -119,6 +125,10 @@ impl Nook {
         updater.register_busy("PdfEditor", pdf.clone());
         let pdf_setup = PdfInstaller::new(runtime.clone());
         updater.register_busy("PdfInstaller", pdf_setup.clone());
+        let convert = ConvertService::new(runtime.clone(), pdf.clone(), home.clone());
+        updater.register_busy("ConvertService", convert.clone());
+        let nooklets = Finder::new(runtime.clone(), home.clone());
+        updater.register_busy("Finder", nooklets.clone());
         Ok(Arc::new(Nook {
             home,
             settings,
@@ -132,6 +142,8 @@ impl Nook {
             flows,
             pdf,
             pdf_setup,
+            convert,
+            nooklets,
             gateway: Mutex::new(None),
             started: AtomicBool::new(false),
             stopping: CancellationToken::new(),
@@ -196,6 +208,8 @@ impl Nook {
         self.video.shutdown().await;
         self.flows.shutdown().await;
         self.pdf_setup.shutdown();
+        self.convert.shutdown();
+        self.nooklets.shutdown().await;
         self.runtime.shutdown().await;
     }
 }

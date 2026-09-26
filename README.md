@@ -11,7 +11,7 @@ and there is no JVM.
 
 ## What you see
 
-- The title strip has **Chat**, **Code** and **Flows**, an icon each, the open page's lit; the
+- The title strip has **Chat**, **Code** and **Nooklets**, an icon each, the open page's lit; the
   sidebar has the sessions so far, and Settings.
 - **Chat** starts a session: the worker model, the repository (earlier sessions' folders or Choose
   a folder…), and the voice prompt. A session shows each request, the worker's live steps, its
@@ -22,8 +22,16 @@ and there is no JVM.
   on the right: the same worker session on a narrow column, told which file is open and what is
   selected. Apply reloads the open files. The folder, the open files and the panels come back
   after a restart (`<home>\code\ide.json`).
-- **Flows** are ready-made jobs done in steps on this computer, one run at a time, with each step's
-  progress shown. The first, *Translate speech*, takes what you say into the microphone (press,
+- **Nooklets** are ready-made jobs done in steps on this computer, one run at a time, with each
+  step's progress shown. The page opens on the finder: Scout, a small animated Nooklet, asks
+  *What do you want done?*, and the request, typed or spoken in any language, goes to a small
+  fixed model on the processor ([multilingual-e5-small](https://huggingface.co/intfloat/multilingual-e5-small),
+  133 MB, served by llama.cpp's processor build and stopped after ten minutes unused) that
+  compares it with each Nooklet's examples and answers with the one for the job, opened with what
+  the request set ("into German" chooses the language, "to PDF" the format). Enter asks; Enter
+  again opens the answer. Until the finder is downloaded, the request's words choose. Once a
+  Nooklet is open, the others are in a rail on the left, with the way back to the finder.
+- The first Nooklet, *Translate speech*, takes what you say into the microphone (press,
   speak, press again: the translation plays by itself when it is ready) or a recording, a podcast
   or a video (dropped anywhere on the window or chosen), and gives it back spoken in another
   language: Whisper writes down what is said, your chat model translates it in numbered batches so
@@ -39,7 +47,7 @@ and there is no JVM.
   thirty-one), Whisper Large v3 Turbo (574 MB) when no speech model is in, and FFmpeg (81 MB) only
   for a video or a format Nook does not read itself (Opus, WMA, AMR…): MP3, M4A/AAC, FLAC, Ogg
   Vorbis, WAV, AIFF and the sound of MP4 and MKV files are read by Nook.
-- The second flow, *Edit a PDF*, opens a PDF of any length (dropped or chosen; pages draw as
+- The second Nooklet, *Edit a PDF*, opens a PDF of any length (dropped or chosen; pages draw as
   they scroll into view) and changes its text in place: drag across the words (or click a line,
   which picks the run of one style under the pointer, say a bold name in a sentence), type, press
   Enter. The editing box shows the text in its own font, size and colour on the page's own
@@ -66,6 +74,20 @@ and there is no JVM.
   page's drawing without rewriting it (the old words covered, and said so). Undo, Save
   ("<name> (edited).pdf" beside the original) and Save as. It runs on PDFium, Chrome's PDF engine
   (3.7 MB, downloaded the first time).
+- The third, *Convert documents*, turns files dropped or chosen (several at once) into the format
+  picked from what they can all become: Word, OpenDocument and RTF documents, PDF, web pages,
+  Markdown, plain text, LaTeX, reStructuredText, AsciiDoc, Typst, Org, MediaWiki, Jupyter
+  notebooks, EPUB and FictionBook, Excel, OpenDocument, CSV, TSV and JSON tables, PowerPoint and
+  OpenDocument slides, and PNG, JPEG, WebP, BMP, TIFF, GIF and icon pictures. Office files go
+  through an office suite so they keep their layout: Word, Excel and PowerPoint when they are on
+  the computer (driven through their own automation, hidden), else LibreOffice (373 MB, downloaded
+  when first needed). Text formats go through Pandoc (42 MB), web pages and text to PDF through
+  Edge's printing, PDFs to text and documents through PDFium's reading of each line (headings by
+  size, lists, bold, hyphens joined, page numbers dropped) and to pictures page by page, pictures
+  and tables through Nook itself (a workbook's sheets become one file each, several pictures one
+  PDF when asked). A result goes beside its file ("report.pdf", "report (2).pdf" when that is
+  taken) or into a folder chosen; the conversions follow, one at a time, each result to open or
+  show in Explorer.
 - **Settings**: *General* (theme, updates, erase everything), *Models* (the curated *Library*,
   *Browse* for any GGUF on Hugging Face sized against your GPU, *Workers*: which model writes the
   code and which transcribes the voice prompt, and the worker's web access), *Runtime* (engines,
@@ -184,7 +206,7 @@ sessions, models and videos stay until you delete them.
 
 Coming from the Kotlin Nook, its sessions, worker choices, measured speeds, web-access switch
 and engines are imported once (see above) and its models are read where they are. Its settings
-(the H2 database: theme, update channel), videos and Flows runs are not imported: this app starts
+(the H2 database: theme, update channel), videos and Nooklets' runs are not imported: this app starts
 on the stable channel with the default theme, and setup counts as done when the old app was used.
 The handover's silent uninstall of the Kotlin Nook keeps `%LOCALAPPDATA%\Nook`, and this app's
 uninstaller never touches it.

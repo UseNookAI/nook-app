@@ -19,11 +19,13 @@ pub mod gateway_port;
 pub mod home;
 pub mod logging;
 pub mod migrate;
+pub mod nooklets;
 pub mod process;
 pub mod resources;
 pub mod settings;
 
 pub mod code;
+pub mod convert;
 pub mod flow;
 pub mod gateway;
 pub mod ide;

@@ -771,6 +771,16 @@ impl RuntimeManager {
             EngineComponent::Pdfium => {
                 packages.executable(component, backend, &["bin/pdfium.dll", "pdfium.dll"])
             }
+            EngineComponent::Pandoc => packages.executable(component, backend, &["pandoc.exe"]),
+            EngineComponent::Office => packages.executable(
+                component,
+                backend,
+                &[
+                    "program/soffice.com",
+                    "LibreOffice/program/soffice.com",
+                    "PFiles/LibreOffice/program/soffice.com",
+                ],
+            ),
         }
     }
 
@@ -2596,9 +2606,11 @@ pub(crate) mod testing {
                 EngineComponent::Llama => llama.clone(),
                 EngineComponent::Whisper => whisper.clone(),
                 EngineComponent::Sd => sd.clone(),
-                EngineComponent::Ffmpeg | EngineComponent::Audio | EngineComponent::Pdfium => {
-                    other.clone()
-                }
+                EngineComponent::Ffmpeg
+                | EngineComponent::Audio
+                | EngineComponent::Pdfium
+                | EngineComponent::Pandoc
+                | EngineComponent::Office => other.clone(),
             }));
         }
         let manager = RuntimeManager::with_options(config, options);

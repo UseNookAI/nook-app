@@ -7,7 +7,8 @@ use super::backend::Backend;
 /// The engine binaries the runtime can install. Each is a separate upstream project on the same
 /// ggml backend, installed into its own directory per backend.
 ///
-/// Serialized as the Java constant name (`"LLAMA"`, `"WHISPER"`, `"SD"`, `"FFMPEG"`, `"AUDIO"`).
+/// Serialized as the Java constant name (`"LLAMA"`, `"WHISPER"`, `"SD"`, `"FFMPEG"`, `"AUDIO"`,
+/// `"PDFIUM"`, `"PANDOC"`, `"OFFICE"`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum EngineComponent {
@@ -25,20 +26,29 @@ pub enum EngineComponent {
     /// PDFium: the PDF editor's reading, drawing and writing (pdfium.dll, bound at run time). One
     /// build serves every backend.
     Pdfium,
+    /// Pandoc: the document converter's text documents (Word, OpenDocument, RTF, Markdown, HTML,
+    /// e-books and more; pandoc.exe). One build serves every backend.
+    Pandoc,
+    /// LibreOffice: the document converter's office documents, laid out as the originals (Word,
+    /// Excel and PowerPoint files old and new, and their OpenDocument kin; soffice, headless).
+    /// One build serves every backend.
+    Office,
 }
 
 impl EngineComponent {
-    pub const ALL: [EngineComponent; 6] = [
+    pub const ALL: [EngineComponent; 8] = [
         EngineComponent::Llama,
         EngineComponent::Whisper,
         EngineComponent::Sd,
         EngineComponent::Ffmpeg,
         EngineComponent::Audio,
         EngineComponent::Pdfium,
+        EngineComponent::Pandoc,
+        EngineComponent::Office,
     ];
 
     /// The manifest key and sub-directory name: `llama`, `whisper`, `sd`, `ffmpeg`, `audio`,
-    /// `pdfium`.
+    /// `pdfium`, `pandoc`, `office`.
     pub fn id(self) -> &'static str {
         match self {
             EngineComponent::Llama => "llama",
@@ -47,16 +57,32 @@ impl EngineComponent {
             EngineComponent::Ffmpeg => "ffmpeg",
             EngineComponent::Audio => "audio",
             EngineComponent::Pdfium => "pdfium",
+            EngineComponent::Pandoc => "pandoc",
+            EngineComponent::Office => "office",
         }
     }
 
-    /// The build the component runs on the selected backend: its own, but FFmpeg and PDFium have
-    /// one build for all, filed under the processor's. (Until 0.5.6 audio.cpp ran its Vulkan
-    /// build on NVIDIA cards too; `EnginePackages::ensure_installed` removes that copy.)
+    /// Whether one build serves every backend (a program for the processor, not a GPU engine):
+    /// FFmpeg, PDFium, Pandoc and LibreOffice, each in `runtime/bin/<id>`.
+    pub fn one_for_all(self) -> bool {
+        matches!(
+            self,
+            EngineComponent::Ffmpeg
+                | EngineComponent::Pdfium
+                | EngineComponent::Pandoc
+                | EngineComponent::Office
+        )
+    }
+
+    /// The build the component runs on the selected backend: its own, but those with one build
+    /// for all ([`one_for_all`](Self::one_for_all)) file it under the processor's. (Until 0.5.6
+    /// audio.cpp ran its Vulkan build on NVIDIA cards too; `EnginePackages::ensure_installed`
+    /// removes that copy.)
     pub fn runs_on(self, backend: Backend) -> Backend {
-        match (self, backend) {
-            (EngineComponent::Ffmpeg | EngineComponent::Pdfium, _) => Backend::Cpu,
-            (_, b) => b,
+        if self.one_for_all() {
+            Backend::Cpu
+        } else {
+            backend
         }
     }
 
@@ -115,6 +141,11 @@ mod tests {
         assert_eq!(
             EngineComponent::Pdfium.runs_on(Backend::Vulkan),
             Backend::Cpu
+        );
+        assert_eq!(EngineComponent::Office.runs_on(Backend::Cuda), Backend::Cpu);
+        assert_eq!(
+            EngineComponent::from_id("PANDOC"),
+            Some(EngineComponent::Pandoc)
         );
         assert_eq!(EngineComponent::Ffmpeg.runs_on(Backend::Cuda), Backend::Cpu);
         assert_eq!(

@@ -221,6 +221,21 @@ pub fn run() {
             commands::pdf::pdf_save,
             commands::pdf::pdf_close,
             commands::pdf::pdf_reveal,
+            commands::convert::convert_offer,
+            commands::convert::convert_install,
+            commands::convert::convert_install_state,
+            commands::convert::convert_cancel_install,
+            commands::convert::convert_clear_install_error,
+            commands::convert::convert_start,
+            commands::convert::convert_jobs,
+            commands::convert::convert_cancel,
+            commands::convert::convert_open,
+            commands::convert::convert_reveal,
+            commands::nooklets::nooklets_setup,
+            commands::nooklets::nooklets_find,
+            commands::nooklets::nooklets_install,
+            commands::nooklets::nooklets_cancel_install,
+            commands::nooklets::nooklets_clear_install_error,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nook")

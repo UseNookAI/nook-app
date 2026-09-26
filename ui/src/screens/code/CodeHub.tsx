@@ -1,8 +1,9 @@
 /**
  * CodeHub.kt: the app under the title strip. The sidebar on the left (the sessions), and on the
  * right the open page: a session, the Chat start page with its Chat | Video switch, the Code page,
- * or the Flows page, as the title strip's Chat, Code and Flows (HubNav) or a session choose. The
- * local worker does the changes; the person reads them, asks for more, applies or discards.
+ * or the Nooklets page, as the title strip's Chat, Code and Nooklets (HubNav) or a session
+ * choose. The local worker does the changes; the person reads them, asks for more, applies or
+ * discards.
  */
 import { useSyncExternalStore } from "react";
 import { codeDelete, codeRename } from "../../api/code";
@@ -34,7 +35,7 @@ interface Memory {
 /**
  * Which page is open, kept while the hub is rendered again or mounted afresh (after the welcome
  * or erase screens): a session, the Chat start page with its kind (a chat or a video), the Code
- * page, or the Flows page.
+ * page, or the Nooklets page.
  */
 export const CodeMemory = (() => {
   let state: Memory = { selected: null, kind: "CHAT", code: false, flows: false };

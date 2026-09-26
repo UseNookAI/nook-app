@@ -5,9 +5,11 @@
 import { inTauri } from "../ipc";
 import { registerAppMocks } from "./app";
 import { registerCodeMocks } from "./code";
+import { registerConvertMocks } from "./convert";
 import { registerFlowsMocks } from "./flows";
 import { registerIdeMocks } from "./ide";
 import { registerModelsMocks } from "./models";
+import { registerNookletsMocks } from "./nooklets";
 import { registerPdfMocks } from "./pdf";
 import { registerRuntimeMocks } from "./runtime";
 import { registerUpdateMocks } from "./update";
@@ -23,5 +25,7 @@ export function installMocks(): void {
   registerVideoMocks();
   registerFlowsMocks();
   registerPdfMocks();
+  registerConvertMocks();
+  registerNookletsMocks();
   registerModelsMocks();
 }

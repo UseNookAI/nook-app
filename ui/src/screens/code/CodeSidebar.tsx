@@ -1,6 +1,6 @@
 /**
  * CodeSidebar.kt (with hub/sidebar/SidebarItem.kt and SidebarIconButton.kt): the sessions so far,
- * and Settings. Chat, Code and Flows are in the title strip (HubNav).
+ * and Settings. Chat, Code and Nooklets are in the title strip (HubNav).
  */
 import { useEffect, useRef, useState } from "react";
 import type { CodeSession } from "../../api/code";

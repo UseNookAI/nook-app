@@ -81,7 +81,16 @@ function saveChoices(c: Choices) {
 
 const newestFirst = (a: Run, b: Run) => b.createdAt - a.createdAt || (b.id < a.id ? -1 : 1);
 
-export function TranslateFlow({ say, onOpenModels }: { say: (message: string) => void; onOpenModels: () => void }) {
+export function TranslateFlow({
+  say,
+  onOpenModels,
+  preset = null,
+}: {
+  say: (message: string) => void;
+  onOpenModels: () => void;
+  /** A request from the finder ("into German") sets the language to translate into. */
+  preset?: { language: string; nonce: number } | null;
+}) {
   const [languages, setLanguages] = useState<Language[]>([]);
   const [choices, setChoices] = useState<Choices>(loadChoices);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -115,6 +124,15 @@ export function TranslateFlow({ say, onOpenModels }: { say: (message: string) =>
   const target = kept ?? (spoken.length > 0 ? defaultTarget(navigator.language, spoken) : "es");
   const { mode, file, source, keepVoice } = choices;
   const sourceSpoken = source != null && spoken.some((l) => l.code === source);
+
+  // The finder's language, once the languages are known: only one a voice speaks.
+  const appliedPreset = useRef<number | null>(null);
+  useEffect(() => {
+    if (!preset || appliedPreset.current === preset.nonce || languages.length === 0) return;
+    appliedPreset.current = preset.nonce;
+    if (languages.some((l) => l.code === preset.language && l.spoken !== false)) update({ target: preset.language });
+    else sayRef.current(`No voice speaks ${languageName(preset.language, languages)} yet, so Nook cannot translate into it.`);
+  }, [preset, languages, update]);
 
   // ---------------------------------------------------------------- reading
 

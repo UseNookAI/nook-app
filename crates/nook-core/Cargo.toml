@@ -52,7 +52,12 @@ symphonia = { version = "0.5", features = ["all"] }
 # Flows: the PDF editor. PDFium (Chrome's PDF engine) is downloaded like an engine and bound at
 # run time; its pages are handed to the page as PNG.
 pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_025", "thread_safe"] }
-image = { version = "0.25", default-features = false, features = ["png"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif", "ico"] }
+# The document converter's tables: workbooks read (Excel's, OpenDocument's), written (Excel's),
+# and CSV.
+calamine = { version = "0.36", features = ["dates"] }
+rust_xlsxwriter = "0.99"
+csv = "1"
 # Text drawn as pixels: the likely fonts are drawn to compare with it.
 ab_glyph = "0.2"
 # PDFium comes as a .tgz.

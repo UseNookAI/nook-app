@@ -35,6 +35,8 @@ use super::fonts::{self, FontTraits, SystemFonts};
 use super::layout::{self, Line, Rect, Run};
 use super::ocr;
 use super::raster::{self, Pixels, PxBox};
+use crate::convert::images;
+use crate::convert::pdftext::{PageText, TextLine};
 
 /// How many edits Undo can take back.
 pub const UNDO_DEPTH: usize = 30;
@@ -313,6 +315,47 @@ impl PdfEditor {
     pub async fn save(&self, id: &str, to: Option<PathBuf>) -> Result<PdfDoc> {
         let id = id.to_string();
         self.call(move |e| e.save(&id, to)).await
+    }
+
+    /// A PDF's text, page by page and line by line, as PDFium reads it out (in the order the
+    /// PDF draws it, which is the reading order of most documents); a page with no text (a scan)
+    /// is read by Windows' text recognition. For the document converter.
+    pub async fn text_lines(&self, path: &Path) -> Result<Vec<PageText>> {
+        let path = path.to_path_buf();
+        self.call(move |e| e.text_lines(&path)).await
+    }
+
+    /// A PDF's pages drawn at `dpi` and written as `to` pictures (a format id): `one` when it
+    /// has one page, else `<dir>/<name> <n>.<ext>`. Returns what was written.
+    pub async fn page_pictures(
+        &self,
+        path: &Path,
+        to: &str,
+        dpi: f32,
+        one: &Path,
+        dir: &Path,
+    ) -> Result<Vec<PathBuf>> {
+        let (path, to, one, dir) = (
+            path.to_path_buf(),
+            to.to_string(),
+            one.to_path_buf(),
+            dir.to_path_buf(),
+        );
+        self.call(move |e| e.page_pictures(&path, &to, dpi, &one, &dir))
+            .await
+    }
+
+    /// Pictures on the pages of a new PDF, one each, fitted to an A4 page turned their way;
+    /// `work` is for pictures made JPEG on the way (a JPEG goes in as it is).
+    pub async fn pictures_pdf(
+        &self,
+        pictures: Vec<PathBuf>,
+        out: &Path,
+        work: &Path,
+    ) -> Result<()> {
+        let (out, work) = (out.to_path_buf(), work.to_path_buf());
+        self.call(move |e| e.pictures_pdf(&pictures, &out, &work))
+            .await
     }
 
     pub async fn close(&self, id: &str) -> Result<()> {
@@ -1500,6 +1543,163 @@ impl Engine {
         Ok(doc.info())
     }
 
+    fn text_lines(&mut self, path: &Path) -> Result<Vec<PageText>> {
+        let document = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(pdf_error)?;
+        let mut pages = Vec::new();
+        for page in document.pages().iter() {
+            let mut lines = Vec::new();
+            {
+                let text = page.text().map_err(pdf_error)?;
+                let mut line = LineSoFar::default();
+                for ch in text.chars().iter() {
+                    let Some(c) = ch.unicode_char() else { continue };
+                    if c == '\n' || c == '\r' {
+                        line.end(&mut lines);
+                        continue;
+                    }
+                    line.text.push(c);
+                    if c.is_whitespace() {
+                        continue;
+                    }
+                    line.chars += 1;
+                    line.size = line.size.max(ch.scaled_font_size().value);
+                    let weight = match ch.font_weight() {
+                        Some(PdfFontWeight::Weight600)
+                        | Some(PdfFontWeight::Weight700Bold)
+                        | Some(PdfFontWeight::Weight800)
+                        | Some(PdfFontWeight::Weight900) => true,
+                        Some(PdfFontWeight::Custom(w)) => w >= 600,
+                        _ => {
+                            let name = ch.font_name().to_lowercase();
+                            name.contains("bold")
+                                || name.contains("black")
+                                || name.contains("heavy")
+                        }
+                    };
+                    line.bold += weight as usize;
+                    if let Ok(b) = ch.loose_bounds() {
+                        line.left = line.left.min(b.left().value);
+                        line.right = line.right.max(b.right().value);
+                        line.top = line.top.max(b.top().value);
+                        line.bottom = line.bottom.min(b.bottom().value);
+                    }
+                }
+                line.end(&mut lines);
+            }
+            if lines.is_empty() {
+                lines = read_page(&page);
+            }
+            pages.push(PageText { lines });
+        }
+        Ok(pages)
+    }
+
+    fn page_pictures(
+        &mut self,
+        path: &Path,
+        to: &str,
+        dpi: f32,
+        one: &Path,
+        dir: &Path,
+    ) -> Result<Vec<PathBuf>> {
+        let document = self
+            .pdfium
+            .load_pdf_from_file(path, None)
+            .map_err(pdf_error)?;
+        let count = document.pages().len() as usize;
+        let digits = count.to_string().len();
+        let name = one
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "page".into());
+        if count > 1 {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("Could not create {}", dir.display()))?;
+        }
+        let mut written = Vec::new();
+        for (i, page) in document.pages().iter().enumerate() {
+            let width = ((page.width().value * dpi / 72.0).round() as i32).clamp(16, 8000);
+            let config = PdfRenderConfig::new()
+                .set_target_width(width)
+                .render_form_data(true)
+                .render_annotations(true);
+            let picture = page
+                .render_with_config(&config)
+                .map_err(pdf_error)?
+                .as_image()
+                .map_err(pdf_error)?;
+            let target = if count == 1 {
+                one.to_path_buf()
+            } else {
+                dir.join(format!("{name} {:0digits$}.{to}", i + 1))
+            };
+            images::save(&picture, to, &target)?;
+            written.push(target);
+        }
+        Ok(written)
+    }
+
+    fn pictures_pdf(&mut self, pictures: &[PathBuf], out: &Path, work: &Path) -> Result<()> {
+        let mut document = self.pdfium.create_new_pdf().map_err(pdf_error)?;
+        for (i, file) in pictures.iter().enumerate() {
+            let (picture, turned) = images::open_upright(file)?;
+            let (w, h) = (picture.width() as f32, picture.height() as f32);
+            let (pw, ph) = if w > h {
+                (842.0, 595.0)
+            } else {
+                (595.0, 842.0)
+            };
+            let margin = 24.0;
+            let s = ((pw - 2.0 * margin) / w).min((ph - 2.0 * margin) / h);
+            let (iw, ih) = (w * s, h * s);
+            let (x, y) = ((pw - iw) / 2.0, (ph - ih) / 2.0);
+            let mut page = document
+                .pages_mut()
+                .create_page_at_end(PdfPagePaperSize::new_custom(
+                    PdfPoints::new(pw),
+                    PdfPoints::new(ph),
+                ))
+                .map_err(pdf_error)?;
+            let see_through =
+                picture.color().has_alpha() && picture.to_rgba8().pixels().any(|p| p.0[3] < 255);
+            let mut object = if see_through {
+                PdfPageImageObject::new_with_size(
+                    &document,
+                    &picture,
+                    PdfPoints::new(iw),
+                    PdfPoints::new(ih),
+                )
+                .map_err(pdf_error)?
+            } else {
+                // A JPEG goes in as it is, compressed; any other picture is made one first.
+                let is_jpeg = crate::convert::formats::of_path(file).is_some_and(|f| f.id == "jpg");
+                let jpeg = if is_jpeg && !turned {
+                    file.clone()
+                } else {
+                    let made = work.join(format!("picture-{i}.jpg"));
+                    images::save(&picture, "jpg", &made)?;
+                    made
+                };
+                let mut o =
+                    PdfPageImageObject::new_from_jpeg_file(&document, &jpeg).map_err(pdf_error)?;
+                o.apply_matrix(PdfMatrix::new(iw, 0.0, 0.0, ih, 0.0, 0.0))
+                    .map_err(pdf_error)?;
+                o
+            };
+            object
+                .translate(PdfPoints::new(x), PdfPoints::new(y))
+                .map_err(pdf_error)?;
+            page.objects_mut()
+                .add_image_object(object)
+                .map_err(pdf_error)?;
+        }
+        document.save_to_file(out).map_err(pdf_error)?;
+        Ok(())
+    }
+
     fn save(&mut self, id: &str, to: Option<PathBuf>) -> Result<PdfDoc> {
         let doc = self.doc(id)?;
         let target = match to {
@@ -1600,6 +1800,91 @@ fn draw_part(page: &PdfPage, part: Rect, scale: f32) -> Result<Drawing> {
         k,
         page_height: ph,
     })
+}
+
+/// A line of a page's text as it is read out, character by character.
+struct LineSoFar {
+    text: String,
+    chars: usize,
+    bold: usize,
+    size: f32,
+    left: f32,
+    right: f32,
+    top: f32,
+    bottom: f32,
+}
+
+impl Default for LineSoFar {
+    fn default() -> Self {
+        LineSoFar {
+            text: String::new(),
+            chars: 0,
+            bold: 0,
+            size: 0.0,
+            left: f32::MAX,
+            right: f32::MIN,
+            top: f32::MIN,
+            bottom: f32::MAX,
+        }
+    }
+}
+
+impl LineSoFar {
+    /// The line done: kept when it has text (bold when most of its letters are).
+    fn end(&mut self, lines: &mut Vec<TextLine>) {
+        let done = std::mem::take(self);
+        if done.chars == 0 {
+            return;
+        }
+        let text = done.text.trim().to_string();
+        let (top, bottom) = if done.top >= done.bottom {
+            (done.top, done.bottom)
+        } else {
+            (done.size, 0.0)
+        };
+        lines.push(TextLine {
+            text,
+            size: done.size,
+            bold: done.bold * 5 > done.chars * 3,
+            left: if done.left == f32::MAX {
+                0.0
+            } else {
+                done.left
+            },
+            right: done.right.max(done.left.min(0.0)),
+            top,
+            bottom,
+        });
+    }
+}
+
+/// A page with no text (a scan) read by Windows' text recognition: its lines, their size from
+/// their height. None when Windows cannot read here.
+fn read_page(page: &PdfPage) -> Vec<TextLine> {
+    let (pw, ph) = (page.width().value, page.height().value);
+    let Ok(drawing) = draw_part(page, Rect::new(0.0, 0.0, pw, ph), 3.0) else {
+        return Vec::new();
+    };
+    let Ok(lines) = ocr::read(&drawing.bgra, drawing.width, drawing.height) else {
+        return Vec::new();
+    };
+    lines
+        .iter()
+        .map(|words| {
+            let b = raster::around(words);
+            let (left, top) = drawing.to_pt(b.left as f32, b.top as f32);
+            let (right, bottom) = drawing.to_pt(b.right as f32, b.bottom as f32);
+            TextLine {
+                text: raster::text_of(words),
+                size: (top - bottom) / 1.2,
+                bold: false,
+                left,
+                right,
+                top,
+                bottom,
+            }
+        })
+        .collect()
 }
 
 /// Letters cut from a page, drawn at `k` pixels a point.

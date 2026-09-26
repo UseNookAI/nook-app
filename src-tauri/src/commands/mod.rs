@@ -4,9 +4,11 @@
 
 pub mod app;
 pub mod code;
+pub mod convert;
 pub mod flows;
 pub mod ide;
 pub mod models;
+pub mod nooklets;
 pub mod pdf;
 pub mod runtime;
 pub mod speech;
