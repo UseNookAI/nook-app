@@ -1,0 +1,119 @@
+/* Settings › Models (AiModelsSettingsView.kt, ModelCard.kt, ModelDownloadsStrip.kt, HubBrowserView.kt, WorkerModelsView.kt). */
+
+/* ---- the header slot: downloads strip, search field ---- */
+.nk-downloads-strip { display: flex; align-items: center; flex: 1; min-width: 0; padding: 0 var(--space-large); }
+.nk-downloads-strip__row { display: flex; align-items: center; min-width: 0; }
+.nk-downloads-strip__icon { color: var(--text-secondary); margin-right: var(--space-small); }
+.nk-downloads-strip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.nk-downloads-strip__more { flex: none; margin-left: var(--space-tiny); color: var(--text-tertiary); }
+.nk-downloads-strip__bar { flex: none; width: 140px; margin-left: var(--space-medium); }
+.nk-searchfield.nk-models-search { flex: none; }
+.nk-models-header__gap { flex: none; width: var(--space-medium); }
+
+/* ---- the page: its views and filters on top, the view below scrolling by itself ---- */
+.nk-models { display: flex; flex-direction: column; flex: 1; min-height: 0; padding: var(--space-small) var(--space-xl) 0; }
+.nk-models__nav { display: flex; align-items: center; flex: none; margin-bottom: var(--space-medium); }
+.nk-models__nav-spacer { flex: 1; min-width: var(--space-small); }
+.nk-models__body { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.nk-models__note { flex: none; padding-bottom: var(--space-small); color: var(--text-tertiary); }
+.nk-models__error { flex: none; padding-bottom: var(--space-small); color: var(--error); }
+.nk-models__center { display: grid; place-items: center; flex: 1; }
+/* The scrolling part reaches the page's right edge, so its scrollbar sits there as General's does. */
+.nk-models__scroll {
+  flex: 1; min-height: 0; overflow-y: auto;
+  margin: 0 calc(-1 * var(--space-xl)); padding: 0 var(--space-xl);
+}
+
+/* ---- Library: the grid of cards ---- */
+.nk-model-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: var(--space-medium);
+  padding-bottom: var(--space-large);
+}
+.nk-model-section {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: var(--space-small);
+  padding: var(--space-small) 0 var(--space-micro);
+}
+.nk-model-section__text { color: var(--text-primary); }
+.nk-model-section__count { color: var(--text-tertiary); }
+
+/* ModelCard: one height for every card, so a grid of them reads as a grid. */
+.nk-model-card {
+  display: flex; flex-direction: column; min-width: 0; height: 164px;
+  padding: calc(var(--space-medium) + var(--space-tiny)) var(--space-large);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-medium); background: var(--surface);
+  transition: border-color 120ms;
+}
+.nk-model-card:hover { border-color: var(--border-strong); }
+.nk-model-card__title { color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nk-model-card__meta { margin-top: var(--space-micro); color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nk-model-card__meta--warning { color: var(--warning); }
+.nk-model-card__description {
+  margin-top: var(--space-small); color: var(--text-secondary);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.nk-model-card__spacer { flex: 1; min-height: var(--space-medium); }
+.nk-model-card__bottom { display: flex; align-items: center; min-width: 0; }
+.nk-model-card__fill { flex: 1; min-width: 0; }
+.nk-model-card__actions { display: flex; align-items: center; gap: var(--space-small); flex: none; transition: opacity 120ms; }
+.nk-model-card--hover-actions .nk-model-card__actions { opacity: 0; }
+.nk-model-card--hover-actions:hover .nk-model-card__actions,
+.nk-model-card--hover-actions:focus-within .nk-model-card__actions { opacity: 1; }
+
+/* The chips that fit whole on one line: the rest wrap onto a second line, which is clipped. 22 px is one Chip. */
+.nk-fitting-chips {
+  display: flex; flex-wrap: wrap; align-content: flex-start; flex: 1; min-width: 0; height: 22px; overflow: hidden;
+  column-gap: var(--space-tiny); row-gap: var(--space-small); margin-right: var(--space-tiny);
+}
+
+/* DownloadBar: the cards' and the strip's bar with its percent. */
+.nk-download-bar { display: flex; align-items: center; }
+.nk-download-bar__track { flex: 1; min-width: 0; height: 4px; overflow: hidden; border-radius: var(--radius-round); background: var(--border); }
+.nk-download-bar__fill { height: 100%; background: var(--accent-strong); transition: width 300ms; }
+.nk-download-bar__fill--paused { background: var(--text-tertiary); }
+.nk-download-bar__percent { flex: none; width: 36px; margin-left: var(--space-small); color: var(--text-secondary); }
+
+/* ---- Browse ---- */
+.nk-hub__quick {
+  display: flex; align-items: center; flex-wrap: wrap; flex: none;
+  gap: var(--space-tiny) calc(var(--space-tiny) + var(--space-micro)); padding-bottom: var(--space-small);
+}
+.nk-hub__quick-chip { display: inline-flex; padding: 0; border: none; border-radius: var(--radius-round); background: none; cursor: pointer; }
+.nk-hub__quick-chip:hover .nk-chip:not(.nk-chip--accent) { background: var(--selected); color: var(--text-primary); }
+.nk-hub__quick-spacer { flex: 1; }
+.nk-hub__loading { display: grid; place-items: center; padding: var(--space-huge); }
+.nk-hub__list { display: flex; flex-direction: column; gap: var(--space-tiny); padding-bottom: var(--space-large); }
+
+.nk-repo { border: var(--border-width) solid transparent; border-radius: var(--radius-medium); background: transparent; }
+.nk-repo:hover, .nk-repo--open { border-color: var(--border); background: var(--surface); }
+.nk-repo__header {
+  display: flex; align-items: center; gap: var(--space-medium); width: 100%;
+  padding: var(--space-medium) calc(var(--space-medium) + var(--space-micro));
+  border: none; background: transparent; color: inherit; text-align: left; cursor: pointer;
+}
+.nk-repo__text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.nk-repo__title-row { display: flex; align-items: center; gap: var(--space-small); min-width: 0; }
+.nk-repo__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.nk-repo__facts { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.nk-repo__chevron { color: var(--text-tertiary); }
+.nk-repo__body { padding: 0 calc(var(--space-medium) + var(--space-micro)) var(--space-medium); }
+.nk-repo__listing { display: flex; align-items: center; gap: var(--space-small); }
+
+.nk-variant { padding: calc(var(--space-tiny) + var(--space-micro)) 0; }
+.nk-variant__row { display: flex; align-items: center; gap: var(--space-medium); }
+.nk-variant__name { flex: none; width: 110px; min-width: 0; }
+.nk-variant__name--wide { width: 260px; }
+.nk-variant__label { font-weight: 500; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nk-variant__file { color: var(--text-tertiary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nk-variant__size { flex: none; width: 120px; font-weight: 400; color: var(--text-secondary); }
+.nk-variant__spacer { flex: 1; }
+.nk-variant__progress { display: flex; align-items: center; gap: var(--space-small); }
+/* CustomButton with 14 px sides and 4 px above and below its label. */
+.nk-button.nk-variant__download {
+  height: calc(20px + 2 * var(--space-tiny)); padding: 0 calc(var(--space-medium) + var(--space-tiny));
+}
+.nk-variant__bar { height: 4px; margin-top: var(--space-tiny); overflow: hidden; border-radius: var(--radius-round); background: var(--hover); }
+.nk-variant__bar-fill { height: 100%; background: var(--accent-strong); transition: width 300ms; }
+
+/* ---- Workers ---- */
+.nk-workers { padding-bottom: var(--space-large); }
+.nk-workers__intro { padding-bottom: var(--space-large); color: var(--text-secondary); }

@@ -1,0 +1,51 @@
+{
+  "_comment": "The voices the flows speak with, run by the audio engine (audio.cpp). In order of preference within a kind: the first voice that speaks the language is used. Files come from audio.cpp's GGUF packages on Hugging Face; the sha256 is the file's LFS hash.",
+  "voices": [
+    {
+      "id": "qwen3-tts-0.6b",
+      "family": "qwen3_tts",
+      "name": "Qwen3-TTS",
+      "clones": true,
+      "languages": ["en", "zh", "ja", "ko", "de", "fr", "ru", "pt", "es", "it"],
+      "licence": "Apache-2.0",
+      "sampleRate": 24000,
+      "file": {
+        "name": "qwen3-tts-12hz-0.6b-base-q8_0.gguf",
+        "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Qwen3-TTS-12Hz-0.6B-Base-GGUF/qwen3-tts-12hz-0.6b-base-q8_0.gguf",
+        "sha256": "771420bd20ff5f35407b4fa9cf9c5461e153800d3d772ef51c9febc0a520855d",
+        "bytes": 1991211136
+      }
+    },
+    {
+      "id": "voxcpm2",
+      "family": "voxcpm2",
+      "name": "VoxCPM2",
+      "clones": true,
+      "designs": true,
+      "languages": ["ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "id", "it", "ja", "km", "ko", "lo", "ms", "my", "nl", "no", "pl", "pt", "ru", "sv", "sw", "th", "tl", "tr", "vi", "zh"],
+      "licence": "Apache-2.0",
+      "sampleRate": 48000,
+      "file": {
+        "name": "voxcpm2-q8_0.gguf",
+        "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/VoxCPM2-GGUF/voxcpm2-q8_0.gguf",
+        "sha256": "c8e01ab4416011e12a28f24ede298a1aa5ce64b43f8e8aaad53b1e2fe7c96432",
+        "bytes": 2955000480
+      }
+    },
+    {
+      "id": "supertonic-3",
+      "family": "supertonic",
+      "name": "Supertonic",
+      "clones": false,
+      "languages": ["en", "ko", "ja", "ar", "bg", "cs", "da", "de", "el", "es", "et", "fi", "fr", "hi", "hr", "hu", "id", "it", "lt", "lv", "nl", "pl", "pt", "ro", "ru", "sk", "sl", "sv", "tr", "uk", "vi"],
+      "licence": "OpenRAIL-M",
+      "sampleRate": 44100,
+      "file": {
+        "name": "supertonic-3-f16.gguf",
+        "url": "https://huggingface.co/audio-cpp/audio.cpp-gguf/resolve/main/Supertonic-3-GGUF/supertonic-3-f16.gguf",
+        "sha256": "b312b57797d40ac5c09d915893dbdbaf6405b7dc043f544776c5c95712dff88c",
+        "bytes": 312784196
+      }
+    }
+  ]
+}

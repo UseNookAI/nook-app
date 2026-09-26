@@ -1,0 +1,252 @@
+/*
+ * The Code screens (ui/component/code/*): sizes follow the Compose screens, colours and spacing
+ * come from theme.css. Every class here starts with "nc-"; the hub pieces they are built from
+ * (PagePane, KindSwitch, ToolbarPill, ...) are styled in screens/hub and components.
+ */
+
+/* ------------------------------------------------------------------ helpers */
+
+.nc-flex-spacer { flex: 1 1 auto; min-width: 0; }
+.nc-nowrap { white-space: nowrap; }
+.nc-ellipsis { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-inline-link {
+  border: none; background: transparent; padding: 0; font: inherit; color: inherit;
+  text-decoration: underline; cursor: pointer;
+}
+.nc-inline-link:hover { color: var(--text-primary); }
+
+/* ------------------------------------------------------------------ hub and page */
+
+.nc-hub { display: flex; width: 100%; height: 100%; min-height: 0; background: var(--background-variant); }
+.nc-hub__page { position: relative; flex: 1 1 auto; min-width: 0; height: 100%; display: flex; flex-direction: column; }
+.nc-hub__page > * { flex: 1 1 auto; min-height: 0; }
+
+/* ------------------------------------------------------------------ sidebar */
+
+.nc-sidebar {
+  flex: none; display: flex; flex-direction: column; width: var(--sidebar-width); height: 100%; overflow: hidden;
+  padding: var(--space-small) calc(var(--space-medium) + var(--space-micro));
+  background: var(--background-variant); transition: width 200ms ease;
+}
+.nc-sidebar--collapsed { width: var(--sidebar-collapsed-width); }
+.nc-sidebar__heading { margin-top: var(--space-large); padding: 0 0 var(--space-tiny) var(--space-small); white-space: nowrap; }
+.nc-sidebar__sessions { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-micro); }
+.nc-sidebar__empty { padding: var(--space-tiny) var(--space-small); }
+
+.nc-session-item {
+  flex: none; display: flex; align-items: center; height: calc(var(--height-list-item) + 12px);
+  padding: 0 var(--space-tiny) 0 var(--space-small); border-radius: var(--radius-small); cursor: pointer; outline: none;
+}
+.nc-session-item:hover, .nc-session-item:focus-visible { background: var(--hover); }
+.nc-session-item--active, .nc-session-item--active:hover { background: var(--selected); }
+.nc-session-item__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.nc-session-item__title { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+.nc-session-item:hover .nc-session-item__title, .nc-session-item--active .nc-session-item__title { color: var(--text-primary); }
+.nc-session-item--active .nc-session-item__title { font-weight: 500; }
+.nc-session-item__end { flex: none; display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; }
+/* The bin (a SidebarIconButton) shows while the row is hovered or focused. */
+.nc-session-item__delete { visibility: hidden; }
+.nc-session-item:hover .nc-session-item__delete, .nc-session-item:focus-within .nc-session-item__delete { visibility: visible; }
+.nc-rename {
+  width: 100%; height: 20px; padding: 0 var(--space-tiny); margin: 0; outline: none;
+  border: var(--border-width) solid var(--border-strong); border-radius: 4px;
+  background: var(--surface); color: var(--text-primary);
+}
+
+/* ------------------------------------------------------------------ menu rows */
+
+.nc-choice-row {
+  display: flex; align-items: center; gap: var(--space-small); min-width: 220px; padding: var(--space-small);
+  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-primary);
+  text-align: left; cursor: pointer;
+}
+.nc-choice-row:hover { background: var(--hover); }
+.nc-choice-row__text { display: flex; flex-direction: column; min-width: 0; }
+
+.nc-repo-row {
+  display: flex; align-items: center; gap: var(--space-medium); min-width: 300px; max-width: 420px; padding: var(--space-small);
+  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-primary);
+  text-align: left; cursor: pointer;
+}
+.nc-repo-row:hover { background: var(--hover); }
+.nc-repo-row__text { display: flex; flex-direction: column; min-width: 0; }
+
+/* ------------------------------------------------------------------ composer controls */
+
+.nc-prompt-icon {
+  flex: none; display: grid; place-items: center; width: var(--space-huge); height: var(--space-huge); padding: 0;
+  border: none; border-radius: 50%; background: transparent; cursor: pointer;
+}
+.nc-prompt-icon:hover:not(:disabled) { background: var(--nc-hover); }
+.nc-prompt-icon:disabled { cursor: default; }
+.nc-prompt-icon:disabled > span { opacity: 0.5; }
+
+.nc-speech { display: inline-flex; align-items: center; gap: var(--space-small); }
+.nc-speech__writing { display: grid; place-items: center; width: var(--height-button-compact); height: var(--height-button-compact); }
+
+.nc-speech-card {
+  display: flex; flex-direction: column; gap: var(--space-large); width: 420px; max-width: calc(100vw - 32px);
+  padding: var(--space-xl); background: var(--surface); color: var(--text-primary);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-large); box-shadow: var(--shadow);
+}
+.nc-speech-card__choices { display: flex; flex-direction: column; align-items: center; gap: var(--space-small); width: 100%; }
+.nc-wide-button { width: 100%; height: auto; padding: var(--space-medium) var(--space-large); }
+
+.nc-context-meter {
+  display: inline-flex; align-items: center; gap: calc(var(--space-tiny) + 2px); padding: var(--space-tiny); cursor: default;
+}
+
+/* ------------------------------------------------------------------ start page */
+
+.nc-start { height: 100%; overflow-y: auto; padding: 0 var(--space-xl); display: flex; flex-direction: column; }
+.nc-start__column {
+  margin: auto; width: 100%; max-width: var(--max-reading-width); padding: var(--space-colossal) 0;
+  display: flex; flex-direction: column; align-items: center;
+}
+.nc-start__controls { display: flex; align-items: center; gap: var(--space-medium); margin-top: var(--space-large); max-width: 100%; }
+.nc-start__column > .nc-composer { margin-top: var(--space-large); }
+.nc-start__note { margin-top: var(--space-medium); max-width: var(--max-reading-width); }
+
+/* ------------------------------------------------------------------ composer */
+
+/* On the hub's .nk-composer card. */
+.nc-composer { display: flex; flex-direction: column; width: 100%; max-width: var(--max-reading-width); }
+.nc-composer__input {
+  display: block; width: 100%; min-height: var(--space-xl); max-height: 160px; margin: 0; padding: 0 var(--space-small) 0 0;
+  border: none; outline: none; resize: none; overflow-y: auto; background: transparent; color: var(--text-primary);
+}
+.nc-composer__input::placeholder { color: var(--text-disabled); opacity: 1; }
+.nc-composer__row { display: flex; align-items: center; gap: var(--space-small); margin-top: var(--space-medium); min-width: 0; }
+
+/* ------------------------------------------------------------------ a session */
+
+.nc-session { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.nc-session__header {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); height: var(--height-topbar); padding: 0 var(--space-large);
+  min-width: 0;
+}
+.nc-session__title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+/* As Compose measures a Row: the folder (a QuietAction, flex: none) and the model keep their width,
+   the title gives way. */
+.nc-session__header .nk-toolbar-pill { flex: none; }
+.nc-session__composer { flex: none; display: flex; justify-content: center; padding: 0 var(--space-huge) var(--space-large); }
+
+.nc-thread { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--space-large) var(--space-huge); }
+.nc-thread--compact { padding: var(--space-medium); }
+.nc-thread__content { display: flex; flex-direction: column; align-items: center; gap: var(--space-large); }
+.nc-thread__end { height: var(--space-small); flex: none; }
+.nc-entry { display: flex; flex-direction: column; gap: var(--space-large); width: 100%; min-width: 0; }
+.nc-entry--page { max-width: var(--max-content-width); }
+
+.nc-selectable { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-primary); }
+
+.nc-task { display: flex; justify-content: flex-end; width: 100%; }
+.nc-task__column { display: flex; flex-direction: column; align-items: flex-end; max-width: min(600px, 100%); min-width: 0; }
+.nc-task__column .nc-fold { align-self: flex-end; }
+.nc-task__meta { padding: 0 var(--space-small) var(--space-micro) 0; }
+.nc-task__bubble {
+  max-width: 100%; padding: calc(var(--space-medium) + var(--space-micro)) var(--space-large);
+  background: var(--hover); border-radius: calc(var(--radius-large) + 2px);
+}
+.nc-task__text--clamped { display: -webkit-box; -webkit-line-clamp: 6; line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
+
+.nc-nook-mark { flex: none; width: var(--icon-medium); height: var(--icon-medium); margin-top: 2px; }
+
+.nc-run { display: flex; align-items: flex-start; gap: var(--space-small); width: 100%; }
+.nc-run__body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: var(--space-small); }
+.nc-run__body > .nc-fold, .nc-run__body > .nc-verify { align-self: flex-start; }
+.nc-run__meta { display: flex; align-items: center; gap: var(--space-small); }
+.nc-undone-pill {
+  font-weight: 500; color: var(--text-secondary); background: var(--hover);
+  border-radius: var(--radius-round); padding: 1px var(--space-small);
+}
+.nc-run__live { display: flex; align-items: center; gap: var(--space-small); min-width: 0; }
+.nc-run__live-text { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
+.nc-run__error { color: var(--error); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+.nc-steps {
+  display: flex; flex-direction: column; gap: var(--space-micro); max-height: 280px; overflow-y: auto;
+  padding: var(--space-medium); background: var(--hover); border-radius: var(--radius-medium);
+}
+.nc-steps__step {
+  font: 400 12px/16px var(--font-mono); color: var(--text-secondary); overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; flex: none;
+}
+
+.nc-verify {
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500;
+  padding: var(--space-tiny) var(--space-medium); border-radius: var(--radius-round);
+}
+.nc-verify--passed { color: var(--success); background: var(--accent-soft); }
+.nc-verify--failed { color: var(--error); background: var(--error-soft); }
+
+.nc-verify-output {
+  margin: 0; max-height: 260px; overflow: auto; padding: var(--space-medium);
+  font: 400 11.5px/16px var(--font-mono); color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere;
+  background: var(--hover); border-radius: var(--radius-small);
+}
+
+.nc-note { width: 100%; text-align: center; color: var(--text-tertiary); white-space: pre-wrap; overflow-wrap: anywhere; }
+.nc-note--error { color: var(--error); }
+.nc-note--ok { color: var(--success); }
+
+/* ------------------------------------------------------------------ reply parts */
+
+.nc-fold {
+  display: inline-flex; align-items: center; gap: var(--space-small); flex: none;
+  padding: calc(var(--space-tiny) + var(--space-micro)) var(--space-micro);
+  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-secondary);
+  text-align: left; cursor: pointer;
+}
+.nc-fold:hover { color: var(--text-primary); }
+.nc-fold-arrow {
+  flex: none; display: inline-flex; border-radius: 50%; background: var(--hover); color: var(--text-secondary);
+}
+.nc-fold:hover .nc-fold-arrow { background: var(--selected); color: var(--text-primary); }
+.nc-fold-arrow__chevron { transform: rotate(-90deg); transition: transform 200ms; }
+.nc-fold-arrow__chevron--open { transform: rotate(0deg); }
+
+.nc-code-block {
+  width: 100%; overflow: hidden; background: var(--surface);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-medium);
+}
+.nc-code-block__head {
+  display: flex; align-items: center; gap: var(--space-small);
+  padding: var(--space-tiny) var(--space-small) var(--space-tiny) var(--space-medium); background: var(--hover);
+}
+.nc-code-block__names { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--space-small); }
+.nc-code-block__path {
+  flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: var(--font-mono); font-weight: 500; color: var(--text-primary);
+}
+.nc-code-block__deleted { padding: var(--space-medium); }
+.nc-code-block__code {
+  margin: 0; padding: calc(var(--space-small) + var(--space-micro)) var(--space-medium);
+  font: 400 12.5px/19px var(--font-mono); color: var(--text-primary);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.nc-code-block__fold { padding: 0 0 var(--space-tiny) var(--space-small); }
+.nc-diff-hunk { color: var(--text-tertiary); }
+.nc-diff-added { color: var(--success); }
+.nc-diff-removed { color: var(--error); }
+
+.nc-reply-toolbar { display: flex; align-items: center; gap: var(--space-tiny); width: 100%; min-width: 0; }
+.nc-reply-toolbar__stat { flex: 0 1 auto; min-width: 0; margin-left: var(--space-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nc-apply {
+  flex: none; margin-left: var(--space-small); padding: var(--space-small) var(--space-large);
+  border: none; border-radius: var(--radius-round); background: var(--primary); color: var(--on-primary);
+  font: 600 12px/16px var(--font-body); white-space: nowrap; cursor: pointer; transition: background-color 150ms;
+}
+.nc-apply:hover { background: color-mix(in srgb, var(--primary) 85%, var(--background)); }
+
+/* ------------------------------------------------------------------ the Code page's column */
+
+.nc-column { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
+.nc-column__hint { padding: var(--space-large); }
+.nc-column__start {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; justify-content: center;
+  padding: 0 var(--space-large);
+}
+.nc-column__lead { margin-top: var(--space-tiny); }
+.nc-column__note { margin-top: var(--space-small); }
+.nc-column__composer { flex: none; padding: var(--space-small); }

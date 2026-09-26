@@ -1,0 +1,170 @@
+{
+  "components": {
+    "llama": {
+      "version": "b10752",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b10752",
+      "backends": {
+        "cuda": [
+          {
+            "name": "llama-b10752-bin-win-cuda-12.4-x64.zip",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/llama-b10752-bin-win-cuda-12.4-x64.zip",
+            "sha256": "6315cb2f9eb8137d7d5a93074f16340bc0d77384985eb1d673d1d86a30204a17",
+            "bytes": 254269325
+          },
+          {
+            "name": "cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/cudart-llama-bin-win-cuda-12.4-x64.zip",
+            "sha256": "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6",
+            "bytes": 391443627
+          }
+        ],
+        "vulkan": [
+          {
+            "name": "llama-b10752-bin-win-vulkan-x64.zip",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/llama-b10752-bin-win-vulkan-x64.zip",
+            "sha256": "dd8e221feb695ed3c890566120f0bd7b0bc0589b4e7c0139cb8dbbe5180f2c82",
+            "bytes": 35183790
+          }
+        ],
+        "cpu": [
+          {
+            "name": "llama-b10752-bin-win-cpu-x64.zip",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/llama-b10752-bin-win-cpu-x64.zip",
+            "sha256": "8339d5bace99506cdc937b9af23e3f66ec9277c905d088193613a7fef6c44614",
+            "bytes": 18373787
+          }
+        ]
+      }
+    },
+    "whisper": {
+      "version": "b4938",
+      "source": "https://github.com/ggml-org/whisper.cpp/releases/tag/b4938",
+      "backends": {
+        "cuda": [
+          {
+            "name": "whisper-cublas-12.4.0-bin-x64.zip",
+            "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-cublas-12.4.0-bin-x64.zip",
+            "sha256": "c1b17166e1e31a91cc8e9c1f910d3785e3ce757bb2958bf9dce13fdb4880005f",
+            "bytes": 671045732
+          }
+        ],
+        "vulkan": [
+          {
+            "name": "whisper-bin-x64.zip",
+            "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-x64.zip",
+            "sha256": "c2a4b60edb11f7e11a9191ffb50929535527d4d91c9903dbe3e554583bbbc63d",
+            "bytes": 8361840
+          }
+        ],
+        "cpu": [
+          {
+            "name": "whisper-bin-x64.zip",
+            "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-x64.zip",
+            "sha256": "c2a4b60edb11f7e11a9191ffb50929535527d4d91c9903dbe3e554583bbbc63d",
+            "bytes": 8361840
+          }
+        ]
+      }
+    },
+    "sd": {
+      "version": "master-841-6b3edaa",
+      "source": "https://github.com/leejet/stable-diffusion.cpp/releases/tag/master-841-6b3edaa",
+      "backends": {
+        "cuda": [
+          {
+            "name": "sd-master-6b3edaa-bin-win-cuda12-x64.zip",
+            "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-841-6b3edaa/sd-master-6b3edaa-bin-win-cuda12-x64.zip",
+            "sha256": "f5ea779f2db1d8432dcc5853517b7a7363ee0b6f90ac2dc9aac728ff7b5642ea",
+            "bytes": 336399103
+          },
+          {
+            "name": "cudart-sd-bin-win-cu12-x64.zip",
+            "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-841-6b3edaa/cudart-sd-bin-win-cu12-x64.zip",
+            "sha256": "fe20366827d357c00797eebb58244dddab7fd9a348d70090c3871004c320f38d",
+            "bytes": 563500000
+          }
+        ],
+        "vulkan": [
+          {
+            "name": "sd-master-6b3edaa-bin-win-vulkan-x64.zip",
+            "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-841-6b3edaa/sd-master-6b3edaa-bin-win-vulkan-x64.zip",
+            "sha256": "b8640b12fd708a2d26a5e31d73861a50ede73f1b3d6132a4dbe037692b68c0f2",
+            "bytes": 38800000
+          }
+        ],
+        "cpu": [
+          {
+            "name": "sd-master-6b3edaa-bin-win-cpu-x64.zip",
+            "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-841-6b3edaa/sd-master-6b3edaa-bin-win-cpu-x64.zip",
+            "sha256": "a36edb067de09fc9f70fcd193e519ff62592f860744558d7918762c7c3401050",
+            "bytes": 24084786
+          }
+        ]
+      }
+    },
+    "ffmpeg": {
+      "version": "n8.1.3",
+      "source": "https://github.com/BtbN/FFmpeg-Builds/releases/tag/autobuild-2026-09-24-14-14",
+      "backends": {
+        "any": [
+          {
+            "name": "ffmpeg-n8.1.3-win64-lgpl-shared-8.1.zip",
+            "url": "https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-24-14-14/ffmpeg-n8.1.3-win64-lgpl-shared-8.1.zip",
+            "sha256": "d42b5f7dfe0387f8419aae3e61e039dc2e60294a3cc6188234bdbd5ae1d088bf",
+            "bytes": 80726424
+          }
+        ]
+      }
+    },
+    "audio": {
+      "version": "v0.8.2-audio8-perf-hotfix",
+      "source": "https://github.com/0xShug0/audio.cpp/releases/tag/v0.8.2-audio8-perf-hotfix",
+      "backends": {
+        "cuda": [
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-cuda12.4.zip",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-cuda12.4.zip",
+            "sha256": "024566e54ac04f064f334f97a4965437e770611875180af6ea8e177993ab3669",
+            "bytes": 460620078
+          },
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-cudart-windows-x64-cuda12.4.zip",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-cudart-windows-x64-cuda12.4.zip",
+            "sha256": "1bfdf9ba1cb189fd40f8cb837ed97fa7e03eb5043dbfbd739baf5e31801fd3c6",
+            "bytes": 607273675
+          }
+        ],
+        "vulkan": [
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-vulkan.zip",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-vulkan.zip",
+            "sha256": "3426ed753f7c720221ce20d27a4c134b6e7595f20955d6a2b9d10e7f47cfec2b",
+            "bytes": 59719330
+          }
+        ],
+        "cpu": [
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-cpu-portable.zip",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-bin-windows-x64-cpu-portable.zip",
+            "sha256": "1d992c7861f3c9b00b20694c0fe7946c98fdaa2ba11f397c2b2bd29ec9fd31e6",
+            "bytes": 25204098
+          }
+        ]
+      }
+    },
+    "pdfium": {
+      "version": "chromium/7881",
+      "source": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7881",
+      "backends": {
+        "any": [
+          {
+            "name": "pdfium-win-x64-7881.tgz",
+            "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7881/pdfium-win-x64.tgz",
+            "sha256": "73cc0de638ac2095e7445bf56a38200a5b7c7ca0e9f4ba144598f2457377ac08",
+            "bytes": 3733154
+          }
+        ]
+      }
+    }
+  }
+}

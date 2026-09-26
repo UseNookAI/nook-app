@@ -1,0 +1,299 @@
+{
+  "image-generation": {
+    "prompt_string":"Generate image of an abandoned coastal city after storm, golden hour low tide wrecked boats on shore, driftwood and barnacles, collapsed boardwalk and ruined buildings, sunset horizon with storm clouds, wide panoramic leading lines from shore to horizon, cinematic landscape, Roger Deakins lighting style, photoreal landscape render, ultra wide 6k, golden rim light low sun from right warm soft, warm gold slate blue muted green palette, wide angle low vantage 24mm lens panoramic, high detail wood grain peeling paint water ripples, volumetric light spray particles subtle lens flare, melancholic serene mood post storm clearing, props broken street lamp rusted sign",
+    "subject": {"value":"abandoned coastal city after storm", "weight":1.0},
+    "context": {"value":"golden hour, low tide, wrecked boats on shore"},
+    "composition": {
+      "foreground":"driftwood and barnacles",
+      "middleground":"collapsed boardwalk and ruined buildings",
+      "background":"sunset horizon with storm clouds",
+      "spatial_layout":"wide panoramic, leading lines from shore to horizon"
+    },
+    "style": {
+      "genre":"cinematic landscape",
+      "artist_references":["Roger Deakins lighting style"],
+      "art_medium":"photoreal landscape render",
+      "render_type":"ultra wide 6k"
+    },
+    "lighting": {"type":"golden rim light","direction":"low sun from right","intensity":"warm soft"},
+    "color": {"palette":"warm gold, slate blue, muted green","dominant_tones":"warm gold"},
+    "camera": {"angle":"wide angle low vantage","lens":"24mm","fov":"wide","frame":"panoramic"},
+    "detail": {"level":"high","micro_detail":"wood grain, peeling paint, water ripples"},
+    "effects": ["volumetric light","spray particles","subtle lens flare"],
+    "optional": {"mood":"melancholic serene","weather":"post storm clearing","props":["broken street lamp","rusted sign"]},
+    "negative_prompt":"people, vehicles, modern signage, text overlay, high saturation, toy like",
+    "parameters": {"width":3840,"height":2160,"steps":28,"sampler":"DDIM","cfg_scale":8.0,"seed":789012,"model":"stable-diffusion-2"}
+  },
+  "programming": {
+    "prompt_string": "Write a Python project that implements a sentiment analysis bot. Provide a training script train.py that by default builds a scikit learn pipeline using TfidfVectorizer and LogisticRegression and that can optionally fine tune a transformer when passed model_type=transformer. Save the trained model and preprocessing pipeline to disk. Implement a FastAPI app main.py exposing POST /predict that accepts {text: string} or {texts: [string]} and returns {label: \"positive|neutral|negative\", score: float, model: string}. Include a CLI run.py with a predict command matching the API. Add unit tests and integration tests using pytest including tests for invalid input. Include logging, input validation, batch predict, and a README with instructions to train run and evaluate. Keep code PEP8 compliant with type hints, and include brief comments explaining design choices and trade offs.",
+    "task": "Build a sentiment analysis bot",
+    "goal": "Create a production ready Python service that classifies text into positive neutral or negative and can be used interactively via an API and as a simple CLI tool",
+    "language": "Python 3.11",
+    "frameworks_libraries": [
+      "FastAPI 0.100",
+      "scikit-learn 1.2",
+      "transformers 4.40",
+      "torch 2.2 (optional for transformer fine tuning)",
+      "pydantic",
+      "joblib",
+      "pytest"
+    ],
+    "requirements": [
+      "Provide a training script that trains a classifier using either a scikit learn pipeline or a fine tuned transformer model depending on a config flag",
+      "Expose a FastAPI endpoint POST /predict that accepts JSON {\"text\": \"...\"} and returns {\"label\": \"positive|neutral|negative\",\"score\": float}",
+      "Provide a CLI command `python run.py predict --text \"...\"` that returns the same response as the API",
+      "Persist the trained model and preprocessing pipeline to disk using joblib for scikit learn or torch save for transformers",
+      "Include a lightweight tokenizer and consistent preprocessing steps such as lowercasing trimming and stopword handling configurable via config file",
+      "Support batch predictions for arrays of texts",
+      "Include unit tests and one integration test that runs the FastAPI app in test client mode",
+      "Log requests and predictions with levels info and error using python logging, but do not log raw sensitive content",
+      "Provide basic input validation and return 400 for invalid input"
+    ],
+    "constraints": {
+      "style": "Follow PEP8 and use type hints. Keep functions small and single responsibility. No Lombok style magic. Use clear docstrings.",
+      "complexity": "Keep training and inference code readable. Default pipeline should use scikit learn with TF IDF and a linear model. Transformer option may be included but must be switchable and optional.",
+      "performance": "Provide a batch predict method that is memory conscious and uses vectorized operations. For scikit learn pipeline ensure vectorizer and model are memory efficient.",
+      "memory": "Avoid loading the model more than once per process. Use lazy loading on first request.",
+      "security": "Sanitize inputs for length and deny extremely large payloads. Do not execute untrusted code. Do not store user text unless opt in."
+    },
+    "input_spec": {
+      "types": "JSON body with key text or array of texts",
+      "format_examples": [
+        "{\"text\": \"I love this product\"}",
+        "{\"texts\": [\"bad service\", \"excellent experience\"]}"
+      ],
+      "size_limits": "Single text max 5000 characters. Batch size max 256 items."
+    },
+    "output_spec": {
+      "types": "JSON",
+      "format_example": "{\"label\": \"positive\", \"score\": 0.92, \"model\": \"sklearn_tfidf_lr_v1\"}"
+    },
+    "edge_cases": [
+      "empty string input",
+      "very long text near 5000 char limit",
+      "mixed languages",
+      "sarcasm and idioms",
+      "neutral ambiguous sentiment"
+    ],
+    "testing": {
+      "unit_tests": true,
+      "integration_tests": true,
+      "test_framework": "pytest",
+      "test_cases": [
+        {
+          "name": "predict single positive",
+          "input": "{\"text\":\"I absolutely love this\"}",
+          "expected": "{\"label\":\"positive\"}"
+        },
+        {
+          "name": "predict batch",
+          "input": "{\"texts\":[\"bad\",\"good\"]}",
+          "expected": "array of two labels"
+        },
+        {
+          "name": "invalid input missing text",
+          "input": "{}",
+          "expected": "400 response"
+        }
+      ]
+    },
+    "documentation": {
+      "comments": true,
+      "readme": true,
+      "api_docs": true,
+      "usage_examples": true
+    },
+    "deliverables": [
+      "train.py training script with config options",
+      "model file model.joblib or model.pt and preprocessing pipeline",
+      "api app main.py with FastAPI and endpoints",
+      "cli run.py with predict command",
+      "tests test_model.py test_api.py",
+      "requirements.txt and setup script",
+      "README with run instructions, example requests, evaluation metrics and how to switch between scikit learn and transformer mode"
+    ],
+    "explain_plan": true,
+    "step_by_step": true,
+    "negative_constraints": [
+      "Do not include large dataset files in the repo",
+      "Do not use global mutable state for model storage",
+      "Do not leak training data or user inputs in logs"
+    ],
+    "parameters": {
+      "default_model_type": "sklearn",
+      "sklearn_pipeline": "TfidfVectorizer + LogisticRegression",
+      "transformer_base": "distilbert-base-uncased",
+      "random_seed": 42,
+      "metrics_to_report": ["accuracy", "precision_macro", "recall_macro", "f1_macro"],
+      "train_test_split": 0.2,
+      "batch_size_infer": 64
+    }
+  },
+  "planning": {
+    "prompt_string": "You are a professional travel planner. Create a complete 14 day exploration itinerary for a trip across North Africa covering Morocco Tunisia and Egypt. Include a summary, day by day timeline with time windows, intercity and intracountry transport recommendations, desert segment planning, accommodation suggestions, cultural and safety guidance, packing list, booking checklist, budget range, risk analysis and mitigations, and alternatives for lower budget or slower pace. Avoid generic filler and avoid unrealistic assumptions about live prices or unsafe locations. Keep output structured and actionable.",
+    "planner_type": "trip_planner",
+    "objective": "Plan a 2 week exploration trip across North Africa focusing on culture history food nature and local experiences. Produce a complete itinerary with logistics budgets and fallback options.",
+    "constraints": {
+      "budget": "midrange",
+      "timeframe": "14 days total including travel days",
+      "location": ["Morocco", "Tunisia", "Egypt"],
+      "resources_available": ["international flights", "regional flights", "trains", "local guides"],
+      "hard_limits": [
+        "trip cannot exceed 14 days",
+        "avoid unsafe regions",
+        "no overnight bus travel"
+      ],
+      "soft_limits": [
+        "prefer walkable areas",
+        "prefer historic sites and natural scenery",
+        "minimal long layovers"
+      ]
+    },
+    "user_profile": {
+      "count": 2,
+      "demographics": "adults, experienced travelers",
+      "preferences": [
+        "ancient history",
+        "local food",
+        "desert landscapes",
+        "markets and medinas",
+        "photography"
+      ],
+      "avoid": [
+        "crowded tourist traps",
+        "overly rushed schedules"
+      ],
+      "special_requirements": [
+        "some days must allow flexible downtime"
+      ]
+    },
+    "inputs": {
+      "known_items": [
+        "origin: any major international airport",
+        "entry points may include Casablanca Tunis Cairo"
+      ],
+      "unknown_items": [
+        "exact routing order",
+        "regional flight availability",
+        "preferred lodging type",
+        "daily pacing"
+      ]
+    },
+    "deliverables": [
+      "summary overview",
+      "14 day itinerary with times travel windows and key activities",
+      "accommodation suggestions with rationale",
+      "transport plan for intercity and intracountry travel",
+      "budget breakdown",
+      "packing list",
+      "safety and cultural guidelines",
+      "alternatives for slower pacing and lower budget",
+      "checklist for bookings and pre trip tasks",
+      "risk analysis and mitigations"
+    ],
+    "structure_rules": {
+      "format": "structured sections with headings",
+      "timeline_format": "day by day",
+      "list_format": "clean bullet lists",
+      "detail_level": "high practicality",
+      "exclusions": [
+        "vague generic advice",
+        "unverified exact prices"
+      ]
+    },
+    "outputs": {
+      "overview": "string",
+      "timeline": [
+        {
+          "phase": "arrival",
+          "date_range": "day 1",
+          "milestones": ["arrival", "check in", "light exploration"],
+          "dependencies": ["international flight arrival time"],
+          "duration": "1 day"
+        }
+      ],
+      "detailed_plan": [
+        {
+          "step": "book flights to starting city",
+          "instructions": "choose most efficient routing from origin to North Africa",
+          "requirements": ["valid passport", "visa checks"],
+          "estimated_time": "1 hour research",
+          "cost_estimate": "variable",
+          "tools_needed": ["flight aggregator"]
+        }
+      ],
+      "budget_breakdown": {
+        "categories": {
+          "accommodation": {"min": 700, "max": 1400},
+          "food": {"min": 300, "max": 500},
+          "transport": {"min": 400, "max": 800},
+          "activities": {"min": 200, "max": 500},
+          "contingency": {"min": 150, "max": 250}
+        },
+        "total_estimate": "approx 1800 to 3450 USD"
+      },
+      "resources": {
+        "people": ["local guides", "drivers for desert legs"],
+        "tools": ["offline maps", "translation app"],
+        "services": ["regional airlines", "train services", "airport transfers"],
+        "digital_resources": [
+          "official tourism sites",
+          "weather data",
+          "Google Maps waypoints"
+        ]
+      },
+      "risks_and_mitigations": [
+        {
+          "risk": "sandstorms or extreme heat during desert segments",
+          "probability": "medium",
+          "impact": "high",
+          "mitigation": "schedule desert day early morning, carry water and cover gear"
+        },
+        {
+          "risk": "transport delays for regional flights",
+          "probability": "medium",
+          "impact": "medium",
+          "mitigation": "avoid back to back commitments"
+        }
+      ],
+      "alternatives": {
+        "lower_budget": [
+          "use trains and shared taxis where safe",
+          "stay in riads or guesthouses rather than hotels",
+          "reduce domestic flights by choosing two countries instead of three"
+        ],
+        "higher_budget": [
+          "hire private drivers",
+          "stay in boutique hotels and desert lodges",
+          "add guided photography tours"
+        ],
+        "time_constrained": [
+          "focus on Morocco only",
+          "skip Egypt or Tunisia to avoid rushed travel"
+        ]
+      },
+      "checklist": [
+        "verify visa requirements",
+        "book international flights",
+        "book regional flights or trains",
+        "reserve desert tour",
+        "arrange travel insurance",
+        "prepare offline maps",
+        "pack according to climate variations"
+      ],
+      "review_strategy": [
+        {
+          "interval": "every 3 days",
+          "metrics": ["stress level", "budget drift", "energy level"],
+          "adjustments": ["shift heavy days", "swap excursions", "reallocate budget"]
+        }
+      ]
+    },
+    "negative_prompt": [
+      "avoid assuming exact real time prices",
+      "avoid suggesting unsafe regions",
+      "avoid overly rushed daily pacing",
+      "avoid unrealistic cross country travel times"
+    ]
+  }
+}

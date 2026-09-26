@@ -1,0 +1,105 @@
+/* Settings (popup/settings/*). */
+
+.nk-settings-scrim {
+  position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center;
+  background: var(--scrim);
+}
+.nk-settings {
+  display: flex; width: 85%; height: 85%; max-width: var(--settings-max-width); overflow: hidden;
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-xl);
+  background: var(--background); color: var(--text-primary); box-shadow: var(--shadow);
+}
+
+/* ---- rail ---- */
+.nk-settings__rail {
+  display: flex; flex-direction: column; flex: none; width: var(--settings-rail-width);
+  padding: var(--space-medium) var(--space-small); background: var(--background-variant);
+}
+.nk-settings__rail-title { padding: var(--space-tiny) 0 var(--space-medium) var(--space-medium); color: var(--text-tertiary); }
+.nk-settings__rail-spacer { flex: 1; }
+.nk-button.nk-settings__update { flex: none; margin: var(--space-small) var(--space-tiny); padding: 0 var(--space-medium); }
+.nk-rail-item {
+  display: flex; align-items: center; gap: var(--space-medium); flex: none; width: 100%;
+  height: var(--height-list-item); padding: 0 var(--space-medium);
+  border: none; border-radius: var(--radius-small); background: transparent;
+  color: var(--text-secondary); font: 400 14px/20px var(--font-body); letter-spacing: -0.01em; text-align: left; cursor: pointer;
+}
+.nk-rail-item:hover { background: var(--hover); color: var(--text-primary); }
+.nk-rail-item--active, .nk-rail-item--active:hover { background: var(--selected); color: var(--text-primary); font-weight: 500; }
+.nk-rail-item__icon { color: var(--text-secondary); }
+.nk-rail-item--active .nk-rail-item__icon { color: var(--primary-variant); }
+
+/* ---- page ---- */
+.nk-settings__page { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.nk-settings__header {
+  display: flex; align-items: center; flex: none;
+  padding: var(--space-large) var(--space-large) var(--space-small) var(--space-xl);
+}
+.nk-settings__title { flex: none; color: var(--text-primary); }
+.nk-settings__slot { display: flex; align-items: center; justify-content: flex-end; flex: 1; min-width: 0; }
+.nk-settings__close {
+  display: grid; place-items: center; flex: none; width: var(--height-button-compact); height: var(--height-button-compact);
+  padding: 0; border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-secondary);
+}
+.nk-settings__close:hover { background: var(--hover); }
+/* Crossfade between pages. */
+.nk-settings__body { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; animation: nk-settings-fade 300ms ease; }
+@keyframes nk-settings-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* SettingsView: the page's scrolling column, inside the frame's 24 px sides. */
+.nk-settings-view { flex: 1; min-height: 0; overflow-y: auto; padding: var(--space-small) var(--space-xl) var(--space-large); }
+
+/* ---- SettingsGroup ---- */
+.nk-settings-group { width: 100%; padding-bottom: var(--space-large); }
+.nk-settings-group__title { padding: 0 0 var(--space-small) var(--space-tiny); color: var(--text-tertiary); }
+.nk-settings-group__card {
+  padding: 0 var(--space-large); overflow: hidden;
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-medium); background: var(--surface);
+}
+.nk-settings-divider { height: var(--border-width); background: var(--border); }
+
+/* ---- SettingsItemRow ---- */
+.nk-settings-row { display: flex; align-items: center; justify-content: space-between; padding: var(--space-medium) 0; }
+.nk-settings-row__text { flex: 1; min-width: 0; padding-right: var(--space-large); }
+.nk-settings-row__title { font-weight: 500; color: var(--text-primary); }
+.nk-settings-row__description { margin-top: var(--space-micro); color: var(--text-secondary); overflow-wrap: anywhere; }
+.nk-settings-row__control { flex: none; }
+.nk-settings-version { font-family: var(--font-mono); color: var(--text-secondary); }
+
+/* ---- SettingsAction ---- */
+.nk-settings-action {
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+  padding: 6px calc(var(--space-medium) + var(--space-tiny));
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-round);
+  background: transparent; color: var(--text-primary); font: 600 14px/20px var(--font-body); letter-spacing: -0.01em;
+  cursor: pointer; transition: background-color 150ms, color 150ms;
+}
+.nk-settings-action:hover:not(:disabled) { background: var(--hover); }
+.nk-settings-action--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--error) 10%, transparent); color: var(--error); }
+.nk-settings-action--primary { border-color: transparent; background: var(--primary); color: var(--on-primary); }
+.nk-settings-action--primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 85%, var(--lighten)); }
+.nk-settings-action:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- SettingsSubNav ---- */
+.nk-subnav { width: fit-content; display: inline-flex; gap: var(--space-micro); padding: var(--space-micro); border-radius: var(--radius-small); background: var(--hover); }
+.nk-subnav__item {
+  padding: calc(var(--space-tiny) + var(--space-micro)) calc(var(--space-medium) + var(--space-tiny));
+  border: none; border-radius: calc(var(--radius-small) - 2px); background: transparent;
+  color: var(--text-secondary); font: 500 14px/20px var(--font-body); letter-spacing: -0.01em; cursor: pointer;
+}
+.nk-subnav__item--selected { background: var(--surface); color: var(--text-primary); }
+
+/* ---- DocumentDialog ---- */
+.nk-document {
+  display: flex; flex-direction: column; width: min(900px, calc(100vw - 64px)); height: calc(100vh - 96px);
+  background: var(--surface); border: var(--border-width) solid var(--border);
+  border-radius: var(--radius-large); box-shadow: var(--shadow); overflow: hidden;
+}
+.nk-document__header {
+  display: flex; align-items: center; gap: var(--space-small); flex: none;
+  padding: var(--space-medium) var(--space-medium) var(--space-medium) var(--space-dialog);
+  border-bottom: var(--border-width) solid var(--border);
+}
+.nk-document__title { flex: 1; min-width: 0; }
+.nk-document__frame { flex: 1; width: 100%; border: none; background: var(--document-bg); }
+.nk-document__status { flex: 1; display: grid; place-items: center; color: var(--text-secondary); }

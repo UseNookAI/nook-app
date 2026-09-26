@@ -1,0 +1,16 @@
+/target/
+/src-tauri/target/
+/src-tauri/gen/
+node_modules/
+/ui/dist/
+*.log
+.vite/
+# Test homes, engine and model downloads for local runs: never committed.
+/resources-test/
+/.scratch/
+*.tsbuildinfo
+# The download host's address and where the keys are (tools/release.local.example.json shows the
+# shape), and the notes kept beside the code on the machine it is written on.
+/tools/release.local.json
+/CLAUDE.md
+/docs/

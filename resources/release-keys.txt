@@ -1,0 +1,7 @@
+# Public keys that sign Nook's release manifests, one base64url ed25519 key per line (text after
+# the key is a comment). The app verifies latest.json.sig against these before it believes a
+# manifest. Keys are added on rotation and never removed while a manifest signed with the old key
+# may still be served. The private halves stay outside every repository; `nook-release keygen`
+# makes a key, `nook-release public` prints a key file's line.
+Q0sCjPkBA0lYpSRxhdXKEg9OFx7J9M-gxW0b7YBBXWg   # 2026-09-22, the original Nook's: signs https://dl.usenook.ai/nook, which every Nook (Kotlin and Rust) follows
+8zZgSf_9nljil-uVgXg_Tx1T5CwtHulN6YeCC9mtMtw   # 2026-09-25, this repository's own: signs test feeds

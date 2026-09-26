@@ -1,0 +1,204 @@
+/*
+ * Nook's design tokens, ported from NookTheme.kt. Every colour in the UI comes from a variable here;
+ * components never hard-code one.
+ *
+ * Light is white (the Kotlin app's Floral White / warm neutrals were replaced by white and neutral
+ * greys on 2026-09-25). The brand accents stay: Carbon Black for the primary action, Hunter Green
+ * for active states, links and progress, Vintage Lavender (sparingly) for the thinking indicator.
+ * Dark keeps the Carbon palette.
+ */
+
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Regular.ttf") format("truetype"); font-weight: 400; font-display: block; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Medium.ttf") format("truetype"); font-weight: 500; font-display: block; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: block; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Bold.ttf") format("truetype"); font-weight: 700; font-display: block; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-ExtraBold.ttf") format("truetype"); font-weight: 800; font-display: block; }
+@font-face { font-family: "DM Sans"; src: url("/fonts/DMSans-Regular.ttf") format("truetype"); font-weight: 400; font-display: block; }
+@font-face { font-family: "DM Sans"; src: url("/fonts/DMSans-Medium.ttf") format("truetype"); font-weight: 500; font-display: block; }
+@font-face { font-family: "DM Sans"; src: url("/fonts/DMSans-SemiBold.ttf") format("truetype"); font-weight: 600; font-display: block; }
+@font-face { font-family: "DM Sans"; src: url("/fonts/DMSans-Bold.ttf") format("truetype"); font-weight: 700; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("/fonts/JetBrainsMono-Regular.ttf") format("truetype"); font-weight: 400; font-display: block; }
+@font-face { font-family: "JetBrains Mono"; src: url("/fonts/JetBrainsMono-Medium.ttf") format("truetype"); font-weight: 500; font-display: block; }
+
+:root {
+  /* Brand primitives */
+  --carbon-black: #1b1a18;
+  --hunter-green: #446d49;
+  --hunter-green-light: #7fae85;
+  --vintage-lavender: #805d93;
+  --lavender-light: #b69ac6;
+
+  /* Light colour contract (NookColors) */
+  --primary: #1b1a18;
+  --on-primary: #ffffff;
+  --primary-variant: #446d49;
+  --accent-soft: #e8efe8;
+  --accent-strong: #446d49;
+  --secondary: #805d93;
+  --secondary-soft: #f2edf5;
+  --hover: #f2f2f4;
+  --selected: #ebebee;
+  --background: #ffffff;          /* the page */
+  --background-variant: #f7f7f8;  /* canvas: sidebar, status strip, settings rail */
+  --surface: #ffffff;             /* raised: composer, cards, menus, dialogs */
+  --code-bg: #1b1a18;
+  --code-text: #f2efe6;
+  --text-primary: #1b1a18;
+  --text-secondary: #5c5c63;
+  --text-tertiary: #8a8a92;
+  --text-disabled: #b5b5bc;
+  --error: #b3453b;
+  --error-soft: #fbe9e7;
+  --warning: #b0751e;
+  --warning-soft: #fbf1e1;
+  --success: #446d49;
+  --link: #446d49;
+  --border: #e6e6e9;
+  --border-strong: #d2d2d7;
+  --scrim: rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 28px rgba(20, 20, 30, 0.10), 0 1px 3px rgba(20, 20, 30, 0.06);
+
+  /* Code syntax (code blocks sit on Carbon Black in both themes) */
+  --syntax-keyword: #7fae85;
+  --syntax-string: #e0c48a;
+  --syntax-literal: #e07a6f;
+  --syntax-comment: #a9a59a;
+  --syntax-meta: #b69ac6;
+
+  /* Spacing */
+  --space-micro: 2px;
+  --space-tiny: 4px;
+  --space-small: 8px;
+  --space-medium: 10px;
+  --space-large: 16px;
+  --space-xl: 24px;
+  --space-huge: 36px;
+  --space-massive: 48px;
+  --space-colossal: 64px;
+  --space-dialog: 20px;
+
+  /* Radius */
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 16px;
+  --radius-xl: 20px;
+  --radius-round: 50px;
+  --pane-radius: 14px;
+  --pane-margin: 5px;
+  --border-width: 1px;
+
+  /* Sizes */
+  --icon-micro: 12px;
+  --icon-small: 16px;
+  --icon-medium: 20px;
+  --icon-standard: 24px;
+  --icon-large: 32px;
+  --height-button-compact: 32px;
+  --height-button: 36px;
+  --height-input-min: 40px;
+  --height-topbar: 48px;
+  --height-footer: 36px;
+  --height-list-item: 36px;
+  --sidebar-width: 264px;
+  --sidebar-right-width: 350px;
+  --sidebar-collapsed-width: 56px;
+  --max-content-width: 900px;
+  --max-reading-width: 760px;
+
+  /* Type families */
+  --font-heading: "Manrope", "Segoe UI", sans-serif;
+  --font-body: "DM Sans", "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", Consolas, monospace;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --primary: #f2efe6;
+  --on-primary: #1b1a18;
+  --primary-variant: #7fae85;
+  --accent-soft: #243127;
+  --accent-strong: #446d49;
+  --secondary: #b69ac6;
+  --secondary-soft: #2e2634;
+  --hover: #2c2b27;
+  --selected: #363530;
+  --background: #1b1a18;
+  --background-variant: #151412;
+  --surface: #242320;
+  --code-bg: #0f0e0d;
+  --code-text: #f2efe6;
+  --text-primary: #f2efe6;
+  --text-secondary: #a9a59a;
+  --text-tertiary: #75716a;
+  --text-disabled: #4a4843;
+  --error: #e07a6f;
+  --error-soft: #3a2523;
+  --warning: #d9a34a;
+  --warning-soft: #3a2f1d;
+  --success: #7fae85;
+  --link: #7fae85;
+  --border: #363530;
+  --border-strong: #4a4843;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  color-scheme: dark;
+}
+
+/* Type scale (NookTypography / NookType) */
+.h1 { font: 800 60px/60px var(--font-heading); letter-spacing: -0.03em; }
+.h2 { font: 700 48px/48px var(--font-heading); letter-spacing: -0.03em; }
+.h3 { font: 700 36px/40px var(--font-heading); letter-spacing: -0.03em; }
+.h4 { font: 700 28px/32px var(--font-heading); letter-spacing: -0.025em; }
+.h5 { font: 600 22px/28px var(--font-heading); letter-spacing: -0.02em; }
+.h6 { font: 600 18px/24px var(--font-heading); letter-spacing: -0.015em; }
+.subtitle1 { font: 500 16px/22px var(--font-body); letter-spacing: -0.01em; }
+.subtitle2 { font: 500 14px/20px var(--font-body); letter-spacing: -0.01em; }
+.body1 { font: 400 16px/24px var(--font-body); letter-spacing: -0.01em; }
+.body2 { font: 400 14px/20px var(--font-body); letter-spacing: -0.01em; }
+.button-text { font: 600 14px/20px var(--font-body); letter-spacing: -0.01em; }
+.caption { font: 400 12px/16px var(--font-body); }
+.overline { font: 500 12px/16px var(--font-body); }
+.body-large { font: 400 18px/26px var(--font-body); letter-spacing: -0.015em; }
+.code { font: 400 13px/20px var(--font-mono); }
+.code-small { font: 400 11px/16px var(--font-mono); }
+.numeric { font: 500 13px/18px var(--font-body); font-feature-settings: "tnum"; }
+
+.text-secondary { color: var(--text-secondary); }
+.text-tertiary { color: var(--text-tertiary); }
+.text-disabled { color: var(--text-disabled); }
+.text-error { color: var(--error); }
+.text-warning { color: var(--warning); }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font: 400 14px/20px var(--font-body);
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  background: var(--background-variant);
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  cursor: default;
+}
+
+input, textarea, [contenteditable="true"], .selectable { user-select: text; cursor: auto; }
+
+button { font: inherit; color: inherit; }
+
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+::selection { background: color-mix(in srgb, var(--primary-variant) 28%, transparent); }
+
+/* Thin scrollbars that sit on the page */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 10px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: var(--text-disabled); }
+::-webkit-scrollbar-track { background: transparent; }

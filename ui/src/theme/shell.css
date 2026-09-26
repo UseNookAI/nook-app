@@ -1,0 +1,50 @@
+/*
+ * Tokens the window shell and the shared components add to theme.css (kept in their own file so
+ * the areas that extend theme.css at the same time do not collide). Same rules: every colour the
+ * shell draws comes from a variable here or in theme.css.
+ */
+
+:root {
+  /* Text and icons on a filled accent or danger surface (Hunter Green, the error red). */
+  --on-accent: #ffffff;
+  /* What a button's hover mixes its fill towards (CustomButton's `lighten(0.15f)`). */
+  --lighten: #ffffff;
+
+  /* The erase screen's backdrop: Carbon Black at 80 %, in both themes (NukeScreen.kt). */
+  --scrim-strong: rgba(27, 26, 24, 0.8);
+  /* Glyphs drawn on that backdrop (the window controls), and their hover. */
+  --on-scrim: rgba(255, 255, 255, 0.7);
+  --on-scrim-hover: rgba(255, 255, 255, 0.12);
+
+  /*
+   * The brand mark (FanMark.kt): the Hunter Green tile, the site's lavender it warms to while it
+   * spins, and the N in Floral White. The mark is the logo, so it is the same in both themes.
+   */
+  --fan-tile: #446d49;
+  --fan-tile-warm: #9d8fc4;
+  --fan-blade: #fffdf5;
+
+  /*
+   * The page a bundled document (licence, notices) is shown on. The documents are written dark on
+   * light in both themes; this replaces the Floral White their own <body> asks for.
+   */
+  --document-bg: #ffffff;
+
+  /* ElevationMedium: tooltips and small popovers. */
+  --shadow-small: 0 4px 12px rgba(20, 20, 30, 0.10), 0 1px 2px rgba(20, 20, 30, 0.06);
+
+  /* Settings */
+  --settings-rail-width: 200px;
+  --settings-max-width: 960px; /* MaxContentWidth + 60 */
+
+  /* The title strip's buttons (TopBarButton, WindowControl). */
+  --topbar-button: 28px;
+
+  /* The toggle switch. */
+  --toggle-width: 34px;
+  --toggle-height: 20px;
+}
+
+:root[data-theme="dark"] {
+  --shadow-small: 0 4px 12px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+}

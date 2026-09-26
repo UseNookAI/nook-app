@@ -1,0 +1,193 @@
+/*
+ * The Code page (IdeScreen.kt and friends). Colours only from theme.css; the editor's palette is
+ * the original's (editorPalette) expressed as --ide-* variables over the theme's tokens.
+ */
+
+/* ------------------------------------------------------------------ the page (on hub/PagePane) */
+
+.ide-hairline { flex: none; height: var(--border-width); background: var(--border); }
+.ide-body { flex: 1; display: flex; min-height: 0; }
+
+/* ------------------------------------------------------------------ header and status bar */
+
+.ide-header {
+  flex: none; display: flex; align-items: center; gap: var(--space-small);
+  height: var(--height-topbar); padding: 0 var(--space-medium) 0 var(--space-large);
+}
+.ide-crumbs { min-width: 0; flex: 0 1 auto; white-space: pre; overflow: hidden; text-overflow: ellipsis; color: var(--text-tertiary); }
+.ide-spacer { flex: 1; }
+/* The folder and Nook pills keep their width; the path gives way. */
+.ide-header .nk-toolbar-pill { flex: none; }
+
+.ide-status {
+  flex: none; display: flex; align-items: center; gap: var(--space-large);
+  height: 26px; padding: 0 var(--space-large); color: var(--text-tertiary);
+}
+.ide-status span { white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------------------ pane lines */
+
+/* The hairline between two panes, which drags to size them. */
+.ide-resize {
+  flex: none; width: calc(var(--space-small) - var(--space-micro)); display: flex; justify-content: center;
+  cursor: e-resize; touch-action: none;
+}
+.ide-resize::after { content: ""; width: var(--border-width); height: 100%; background: var(--border); }
+
+/* ------------------------------------------------------------------ a recent folder's name and path */
+
+.ide-repo-row__text { min-width: 0; display: flex; flex-direction: column; }
+.ide-repo-row__name { font-weight: 500; }
+.ide-ellipsis { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------------------ no folder yet */
+
+.ide-welcome { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--space-xl); min-height: 0; overflow: auto; }
+.ide-welcome__column {
+  width: 100%; max-width: 460px; display: flex; flex-direction: column; align-items: center; gap: var(--space-medium);
+}
+.ide-welcome__column > p { margin: 0; text-align: center; color: var(--text-secondary); }
+.ide-welcome__recent { width: 100%; margin-top: var(--space-small); color: var(--text-tertiary); }
+.ide-recent-row {
+  display: flex; align-items: center; gap: var(--space-medium); width: 100%; min-width: 0;
+  padding: calc(var(--space-small) - var(--space-micro)) var(--space-small);
+  border: none; border-radius: var(--radius-small); background: transparent; text-align: left; cursor: pointer;
+  color: var(--text-primary);
+}
+.ide-recent-row:hover { background: var(--hover); }
+
+/* ------------------------------------------------------------------ explorer */
+
+.ide-explorer { flex: none; display: flex; flex-direction: column; min-height: 0; }
+.ide-pane-header {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); height: 36px;
+  padding: 0 var(--space-tiny) 0 calc(var(--space-medium) + var(--space-tiny));
+}
+.ide-pane-header__title { flex: 1; min-width: 0; font-weight: 600; color: var(--text-primary); }
+.ide-tree { flex: 1; min-height: 0; overflow: auto; padding: 0 var(--space-tiny); }
+.ide-tree__empty { padding: var(--space-small) var(--space-medium); color: var(--text-tertiary); }
+.ide-row {
+  display: flex; align-items: center; gap: calc(var(--space-tiny) + var(--space-micro)); height: 26px;
+  padding-right: var(--space-small); border-radius: var(--radius-small); cursor: pointer; color: var(--text-secondary);
+}
+.ide-row:hover { background: var(--hover); color: var(--text-primary); }
+.ide-row--active { color: var(--text-primary); }
+.ide-row--active .ide-row__name { font-weight: 500; }
+.ide-row--selected, .ide-row--selected:hover { background: var(--selected); color: var(--text-primary); }
+.ide-row__name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ide-chevron { display: inline-flex; flex: none; width: 12px; height: 12px; transition: transform 120ms; }
+.ide-chevron--open { transform: rotate(90deg); }
+.ide-file-glyph { display: inline-flex; flex: none; width: 11px; height: 11px; margin-left: 1px; }
+
+/* ------------------------------------------------------------------ editor pane */
+
+.ide-editor-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ide-tabs {
+  flex: none; display: flex; align-items: flex-end; height: 36px; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: none;
+}
+.ide-tabs::-webkit-scrollbar { display: none; }
+.ide-tab {
+  flex: none; display: flex; align-items: center; gap: var(--space-tiny); height: 32px;
+  padding: 0 var(--space-tiny) 0 calc(var(--space-medium) + var(--space-micro));
+  border-radius: var(--radius-small) var(--radius-small) 0 0; cursor: pointer; color: var(--text-secondary);
+}
+.ide-tab:hover { background: var(--hover); color: var(--text-primary); }
+.ide-tab--active, .ide-tab--active:hover { background: var(--selected); color: var(--text-primary); }
+.ide-tab--active .ide-tab__name { font-weight: 500; }
+.ide-tab__name { max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ide-tab__end { width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.ide-tab__close {
+  width: 18px; height: 18px; display: none; align-items: center; justify-content: center;
+  border: none; border-radius: 50%; background: transparent; color: var(--text-secondary); cursor: pointer; padding: 0;
+}
+.ide-tab__close:hover { background: var(--selected); }
+.ide-tab:hover .ide-tab__close { display: flex; }
+.ide-tab:hover .ide-tab__dot { display: none; }
+.ide-tab__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-secondary); }
+.ide-tab__dot--conflict { background: var(--warning); }
+
+.ide-find {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); height: 36px;
+  padding: 0 var(--space-medium); background: var(--background-variant);
+}
+.ide-find__icon { color: var(--text-tertiary); }
+.ide-find__input {
+  flex: 1; min-width: 0; border: none; outline: none; background: transparent; padding: 0;
+  font: 400 14px/20px var(--font-body); letter-spacing: -0.01em; color: var(--text-primary);
+}
+.ide-find__input::placeholder { color: var(--text-disabled); }
+.ide-find__count { flex: none; color: var(--text-tertiary); white-space: nowrap; }
+.ide-find__count--none { color: var(--warning); }
+.ide-case {
+  flex: none; padding: var(--space-micro) calc(var(--space-tiny) + var(--space-micro));
+  border: var(--border-width) solid transparent; border-radius: var(--radius-small); background: transparent;
+  font: 600 12px/16px var(--font-body); color: var(--text-tertiary); cursor: pointer;
+}
+.ide-case--on { background: var(--selected); border-color: var(--border-strong); color: var(--text-primary); }
+
+.ide-editor-area { position: relative; flex: 1; min-height: 0; background: var(--ide-bg); }
+.ide-editor-area > .ide-editor-host { position: absolute; inset: 0; }
+.ide-editor-card { height: 100%; }
+.ide-empty-editor {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-small); padding: var(--space-large); text-align: center; background: var(--ide-bg);
+}
+.ide-empty-editor__title { color: var(--text-secondary); }
+.ide-empty-editor__hint { max-width: 360px; color: var(--text-tertiary); }
+.ide-fold-marker { display: inline-flex; width: 10px; height: 10px; transition: transform 120ms; }
+
+/* ------------------------------------------------------------------ the Nook panel */
+
+.ide-assistant { flex: none; display: flex; flex-direction: column; min-height: 0; }
+.ide-assistant__logo { width: 18px; height: 18px; flex: none; }
+.ide-assistant__session { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ide-assistant__hint { padding: var(--space-large); color: var(--text-tertiary); }
+.ide-context-line {
+  flex: none; display: flex; align-items: center; gap: var(--space-small);
+  padding: var(--space-tiny) calc(var(--space-small) + var(--space-tiny)) var(--space-small);
+}
+.ide-context-line__text { flex: 1; min-width: 0; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ------------------------------------------------------------------ dialogs */
+
+.ide-name-input {
+  width: 100%; padding: var(--space-small) var(--space-medium);
+  border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-small);
+  background: var(--background); color: var(--text-primary); outline: none;
+  font: 400 16px/24px var(--font-body); letter-spacing: -0.01em;
+}
+.ide-name-input:focus { border-color: var(--text-tertiary); }
+
+/* ------------------------------------------------------------------ the editor's palette */
+
+.ide-editor-area, .ide-editor-host {
+  --ide-bg: var(--background);
+  --ide-text: var(--text-primary);
+  --ide-gutter: var(--background-variant);
+  --ide-gutter-text: var(--text-tertiary);
+  --ide-current-line: color-mix(in srgb, var(--hover) 70%, transparent);
+  --ide-selection: var(--border);
+  --ide-mark: var(--selected);
+  /* The find bar's matches stand out from the selection and the word marks. */
+  --ide-find: var(--warning-soft);
+  --ide-find-current: color-mix(in srgb, var(--warning) 28%, var(--ide-bg));
+  --ide-bracket: var(--accent-soft);
+  --ide-keyword: var(--primary-variant);
+  --ide-type: var(--secondary);
+  --ide-string: var(--warning);
+  --ide-number: var(--error);
+  --ide-comment: var(--text-tertiary);
+  --ide-meta: var(--secondary);
+  --ide-operator: var(--text-secondary);
+}
+:root[data-theme="dark"] .ide-editor-area, :root[data-theme="dark"] .ide-editor-host {
+  --ide-bg: var(--code-bg);
+  --ide-current-line: color-mix(in srgb, var(--surface) 80%, transparent);
+  --ide-selection: var(--border-strong);
+  --ide-string: var(--syntax-string);
+  --ide-number: var(--syntax-literal);
+  --ide-comment: var(--syntax-comment);
+  --ide-meta: var(--syntax-meta);
+  --ide-operator: var(--text-secondary);
+}

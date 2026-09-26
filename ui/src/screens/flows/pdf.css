@@ -1,0 +1,78 @@
+/* The PDF editor flow. Colours, spacing and type come from theme.css; the pages are paper, so they
+   stay white in the dark theme too. */
+
+.pdf-flow { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.pdf-bar {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); min-width: 0;
+  padding: var(--space-medium) var(--space-large); border-bottom: var(--border-width) solid var(--border);
+}
+.pdf-bar__icon {
+  flex: none; display: grid; place-items: center; width: 30px; height: 30px;
+  border-radius: var(--radius-small); background: var(--accent-soft); color: var(--primary-variant);
+}
+.pdf-bar__name { display: flex; flex-direction: column; min-width: 0; max-width: 40%; }
+.pdf-zoom { display: flex; align-items: center; gap: var(--space-micro); padding: 0 var(--space-small); }
+.pdf-zoom__value {
+  min-width: 46px; padding: var(--space-tiny); border: none; border-radius: var(--radius-small);
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+}
+.pdf-zoom__value:hover { background: var(--hover); color: var(--text-primary); }
+.pdf-hint { flex: none; padding: var(--space-small) var(--space-large); background: var(--background-variant); border-bottom: var(--border-width) solid var(--border); }
+
+.pdf-scroll {
+  flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center;
+  gap: var(--space-xl); padding: var(--space-xl) var(--space-large) var(--space-huge); background: var(--background-variant);
+}
+
+.pdf-page {
+  position: relative; flex: none; background: #ffffff; border-radius: 2px;
+  box-shadow: 0 1px 3px rgba(20, 20, 30, 0.12), 0 6px 20px rgba(20, 20, 30, 0.08);
+}
+.pdf-page__img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; }
+.pdf-page__wait { position: absolute; inset: 0; display: grid; place-items: center; }
+.pdf-page__layer { position: absolute; inset: 0; cursor: text; touch-action: none; }
+.pdf-page__drag {
+  position: absolute; border: 1.5px solid var(--hunter-green); border-radius: 3px;
+  background: color-mix(in srgb, var(--hunter-green) 12%, transparent); pointer-events: none;
+}
+.pdf-page__number {
+  position: absolute; right: -34px; bottom: 0; color: var(--text-tertiary); user-select: none;
+}
+.pdf-page__hint {
+  position: absolute; z-index: 3; max-width: 260px; padding: var(--space-small) var(--space-medium);
+  border-radius: var(--radius-small); background: var(--carbon-black); color: #f2efe6; box-shadow: var(--shadow);
+  pointer-events: none; animation: pdf-fade 160ms ease;
+}
+
+/* The editing box: the text in its own font, on the page's own colour. */
+.pdf-edit { position: absolute; z-index: 4; }
+.pdf-edit__field {
+  display: block; box-sizing: border-box; margin: 0; border: none; outline: 2px solid var(--hunter-green); outline-offset: 0;
+  border-radius: 2px; resize: none; overflow: hidden; white-space: pre; box-shadow: 0 0 0 5px color-mix(in srgb, var(--hunter-green) 18%, transparent);
+  caret-color: var(--hunter-green);
+}
+.pdf-edit__measure { position: absolute; visibility: hidden; white-space: pre; left: 0; top: 0; }
+.pdf-edit__bar {
+  position: absolute; left: 0; top: calc(100% + 10px); display: flex; align-items: center; gap: var(--space-medium);
+  min-width: 380px; padding: var(--space-tiny) var(--space-tiny) var(--space-tiny) var(--space-small);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-medium); background: var(--surface);
+  box-shadow: var(--shadow); white-space: nowrap; animation: pdf-fade 140ms ease;
+}
+.pdf-edit__bar--above { top: auto; bottom: calc(100% + 10px); }
+.pdf-edit__bar--end { left: auto; right: 0; }
+.pdf-edit__font { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.pdf-align .nk-kind-pill { padding: 5px 8px; }
+.pdf-letters .nk-kind-pill { padding: 3px 10px; font-size: 12px; line-height: 18px; }
+.pdf-letters .pdf-edit__font { max-width: 150px; }
+
+.pdf-opening { gap: var(--space-medium); cursor: default; }
+.pdf-drop-veil {
+  position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; pointer-events: none;
+  background: color-mix(in srgb, var(--accent-soft) 80%, transparent); border: 2px dashed var(--primary-variant); border-radius: var(--pane-radius);
+}
+
+@keyframes pdf-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: none; }
+}

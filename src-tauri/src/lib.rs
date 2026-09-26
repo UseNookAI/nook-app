@@ -1,0 +1,233 @@
+//! The desktop shell: one window drawing the web UI in `ui/`, with `nook_core::Nook` behind it.
+//! Commands live in `commands/<area>.rs` and are all listed in [`run`]; core events are forwarded
+//! to the UI as `nook:<topic>`.
+//!
+//! The window starts hidden (`"visible": false` in tauri.conf.json): the UI sizes it for its first
+//! screen and then shows it, so it never jumps from one size to another in view. Should the UI not
+//! get that far (a script error, a dev server that is not up), Rust shows it after
+//! [`SHOW_FALLBACK`] anyway.
+
+use std::sync::Arc;
+use std::time::Duration;
+
+use nook_core::update::handover;
+use nook_core::{Home, Nook};
+use tauri::{Emitter, Manager};
+
+mod commands;
+
+pub struct AppState(pub Arc<Nook>);
+
+/// How long the UI has to show the window before Rust shows it itself.
+const SHOW_FALLBACK: Duration = Duration::from_secs(8);
+
+pub fn run() {
+    let home = Home::resolve().expect("Nook cannot create its home folder");
+    nook_core::logging::init(&home);
+    // Started where the Kotlin Nook was installed (its updater's restart after installing this
+    // app): the installed Nook takes over, and this process ends here.
+    if handover::forward_to_installed() {
+        return;
+    }
+    tracing::info!(
+        "Nook {} starting in {}",
+        nook_core::build_info::BuildInfo::current().label(),
+        home.root().display()
+    );
+    let nook = Nook::new(home).expect("Nook could not start");
+    // An installed copy removes the Nook.exe the installer left there, once nothing needs it.
+    if nook_core::update::install::relaunch_target().is_some() {
+        handover::remove_leftovers(handover::old_program_dirs(), handover::handed_over());
+    }
+
+    tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // A second start brings the running window forward instead.
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(AppState(nook.clone()))
+        .setup(move |app| {
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                let mut rx = nook_core::events::subscribe();
+                loop {
+                    match rx.recv().await {
+                        Ok(ev) => {
+                            let _ = handle.emit(&format!("nook:{}", ev.topic), ev.payload);
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            tracing::warn!("UI event bridge skipped {n} events");
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            // The Video page plays clips from the home's videos folder and the Flows page its
+            // tracks from the flows folder, through the asset protocol; tauri.conf.json covers the
+            // default home, this covers NOOK_RS_HOME.
+            for dir in [nook.home.videos_dir(), nook.home.flows_dir()] {
+                if let Err(e) = app.asset_protocol_scope().allow_directory(&dir, true) {
+                    tracing::warn!("Could not allow {} to the window: {e}", dir.display());
+                }
+            }
+
+            // Once the updater has started the installer, the app quits so it can replace the files.
+            let quitter = app.handle().clone();
+            nook.updater.set_quit_hook(move || quitter.exit(0));
+
+            if let Some(window) = app.get_webview_window("main") {
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(SHOW_FALLBACK).await;
+                    if !window.is_visible().unwrap_or(true) {
+                        tracing::warn!(
+                            "The UI did not show the window within {}s; showing it",
+                            SHOW_FALLBACK.as_secs()
+                        );
+                        let _ = window.show();
+                        let _ = window.set_focus();
+                    }
+                });
+            }
+
+            let started = nook.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = started.start().await {
+                    tracing::error!("background start failed: {e:#}");
+                }
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::app::app_info,
+            commands::app::settings_all,
+            commands::app::settings_set,
+            commands::app::app_erase_everything,
+            commands::app::app_quit,
+            commands::app::app_eula,
+            commands::app::app_notices,
+            commands::update::update_status,
+            commands::update::update_check,
+            commands::update::update_start,
+            commands::update::update_cancel,
+            commands::update::update_snooze,
+            commands::update::update_set_channel,
+            commands::runtime::runtime_init,
+            commands::runtime::runtime_refresh_models,
+            commands::runtime::runtime_ensure_engine,
+            commands::runtime::runtime_gpu_load,
+            commands::runtime::runtime_status,
+            commands::runtime::runtime_downloads,
+            commands::runtime::runtime_unload,
+            commands::runtime::runtime_pin,
+            commands::runtime::runtime_load,
+            commands::runtime::gpu_snapshot,
+            commands::models::models_catalog,
+            commands::models::models_installed,
+            commands::models::models_downloads,
+            commands::models::models_download,
+            commands::models::models_pause,
+            commands::models::models_resume,
+            commands::models::models_cancel,
+            commands::models::models_delete,
+            commands::models::hub_search,
+            commands::models::hub_variants,
+            commands::models::hub_installed,
+            commands::models::hub_download,
+            commands::models::hub_cancel,
+            commands::models::workers_preferences,
+            commands::models::workers_current,
+            commands::models::workers_set,
+            commands::models::web_access_enabled,
+            commands::models::web_access_set,
+            commands::speech::speech_start,
+            commands::speech::speech_stop_and_transcribe,
+            commands::speech::speech_cancel,
+            commands::ide::ide_load_prefs,
+            commands::ide::ide_save_prefs,
+            commands::ide::ide_resolve_folder,
+            commands::ide::ide_branch,
+            commands::ide::ide_list_dir,
+            commands::ide::ide_read_file,
+            commands::ide::ide_write_file,
+            commands::ide::ide_file_times,
+            commands::ide::ide_create_file,
+            commands::ide::ide_create_folder,
+            commands::ide::ide_rename,
+            commands::ide::ide_delete,
+            commands::code::code_snapshot,
+            commands::code::code_start,
+            commands::code::code_send,
+            commands::code::code_stop,
+            commands::code::code_apply,
+            commands::code::code_discard,
+            commands::code::code_undo,
+            commands::code::code_delete,
+            commands::code::code_rename,
+            commands::code::code_run_diff,
+            commands::code::code_next_context,
+            commands::code::code_repository_state,
+            commands::code::code_recent_repositories,
+            commands::code::code_set_worker,
+            commands::code::code_speech_problem,
+            commands::code::code_speech_model,
+            commands::code::code_speech_download,
+            commands::code::code_speech_install,
+            commands::video::video_clips,
+            commands::video::video_submit,
+            commands::video::video_cancel,
+            commands::video::video_delete,
+            commands::video::video_setup,
+            commands::video::video_download_state,
+            commands::video::video_download,
+            commands::video::video_download_pause,
+            commands::video::video_download_resume,
+            commands::video::video_open_folder,
+            commands::video::video_open,
+            commands::video::video_reveal,
+            commands::flows::flows_languages,
+            commands::flows::flows_runs,
+            commands::flows::flows_plan,
+            commands::flows::flows_install,
+            commands::flows::flows_install_state,
+            commands::flows::flows_cancel_install,
+            commands::flows::flows_clear_install_error,
+            commands::flows::flows_submit,
+            commands::flows::flows_record_start,
+            commands::flows::flows_record_stop,
+            commands::flows::flows_record_cancel,
+            commands::flows::flows_cancel,
+            commands::flows::flows_delete,
+            commands::flows::flows_again,
+            commands::flows::flows_open_folder,
+            commands::flows::flows_open,
+            commands::flows::flows_reveal,
+            commands::pdf::pdf_setup,
+            commands::pdf::pdf_install,
+            commands::pdf::pdf_cancel_install,
+            commands::pdf::pdf_clear_install_error,
+            commands::pdf::pdf_open,
+            commands::pdf::pdf_docs,
+            commands::pdf::pdf_render,
+            commands::pdf::pdf_pick,
+            commands::pdf::pdf_replace,
+            commands::pdf::pdf_undo,
+            commands::pdf::pdf_save,
+            commands::pdf::pdf_close,
+            commands::pdf::pdf_reveal,
+        ])
+        .build(tauri::generate_context!())
+        .expect("error while building Nook")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                let nook = app.state::<AppState>().0.clone();
+                tauri::async_runtime::block_on(async move { nook.shutdown().await });
+            }
+        });
+}

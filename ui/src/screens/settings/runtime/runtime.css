@@ -1,0 +1,27 @@
+/* Settings › Runtime (RuntimeSettingsView.kt). */
+
+.nk-runtime__name { font-weight: 500; color: var(--text-primary); }
+.nk-runtime__note { padding: calc(var(--space-medium) + var(--space-tiny)) 0; }
+
+/* A card's memory: name and use, a 6 px bar (red over 90 %), the driver and what models may use. */
+.nk-runtime-gpu { padding: var(--space-medium) 0; }
+.nk-runtime-gpu__head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-large); }
+.nk-runtime-gpu__track { height: 6px; margin-top: var(--space-small); overflow: hidden; border-radius: 3px; background: var(--border); }
+.nk-runtime-gpu__fill { height: 100%; background: var(--primary-variant); transition: width 300ms; }
+.nk-runtime-gpu__fill--full { background: var(--error); }
+.nk-runtime-gpu__driver { margin-top: var(--space-tiny); }
+
+/* A loaded model: its name and chips, its layout and queue, then Pin and Unload. */
+.nk-runtime-engine { display: flex; align-items: center; gap: var(--space-medium); padding: var(--space-medium) 0; }
+.nk-runtime-engine__text { flex: 1; min-width: 0; }
+.nk-runtime-engine__title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-small); }
+.nk-runtime-engine__layout { margin-top: var(--space-micro); }
+.nk-runtime-engine__actions { display: flex; flex: none; gap: var(--space-small); }
+
+/* The event feed: one monospaced caption line per event, failures in the error colour. */
+.nk-runtime-events { padding: var(--space-small) 0; }
+.nk-runtime-events__line {
+  padding: var(--space-micro) 0; color: var(--text-secondary);
+  font: 400 12px/16px var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.nk-runtime-events__line--failed { color: var(--error); }

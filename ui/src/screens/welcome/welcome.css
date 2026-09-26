@@ -1,0 +1,5 @@
+.nk-welcome { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 0; overflow: auto; }
+.nk-welcome__column { display: flex; flex-direction: column; align-items: center; padding: var(--space-xl); }
+.nk-welcome__logo { height: 56px; width: 56px; margin-bottom: var(--space-huge); }
+.nk-welcome__title { width: 720px; max-width: 100%; margin: 0 0 var(--space-large); text-align: center; color: var(--text-primary); }
+.nk-welcome__body { width: 620px; max-width: 100%; margin: 0 0 var(--space-huge); text-align: center; color: var(--text-secondary); }

@@ -1,0 +1,86 @@
+/* The Video page (VideoScreen.kt). Sizes follow the Compose screen; colours are theme tokens. */
+
+.vd-topbar {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); min-width: 0;
+  height: var(--height-topbar); padding: 0 var(--space-large);
+}
+.vd-grow { flex: 1; min-width: 0; }
+.vd-row { display: flex; }
+
+.vd-model { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vd-model--choice {
+  display: inline-flex; align-items: center; gap: var(--space-tiny); flex: 0 1 auto;
+  padding: var(--space-micro) var(--space-tiny); border: none; border-radius: var(--radius-small);
+  background: transparent; color: var(--text-tertiary); cursor: pointer;
+}
+.vd-model--choice:hover { background: var(--hover); color: var(--text-secondary); }
+.vd-model__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+
+.vd-list {
+  flex: 1; min-height: 0; overflow-y: auto;
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-large);
+  padding: var(--space-large) var(--space-xl);
+}
+.vd-list > * { flex: none; width: 100%; max-width: var(--max-reading-width); }
+.vd-empty { padding: 0 var(--space-small); }
+
+/* ---------------------------------------------------------------- composer (on the hub's .nk-composer card) */
+
+.vd-composer__field { padding-right: var(--space-small); }
+.vd-composer__input {
+  display: block; width: 100%; margin: 0; padding: 0; border: none; outline: none; resize: none;
+  /* HeightPrompt: the field grows to 160 px, then scrolls. */
+  min-height: var(--space-xl); max-height: 160px; overflow-y: auto;
+  background: transparent; color: var(--text-primary); caret-color: var(--text-primary);
+}
+.vd-composer__input::placeholder { color: var(--text-disabled); opacity: 1; }
+.vd-composer__input:disabled { cursor: default; }
+.vd-composer__row { display: flex; align-items: center; margin-top: var(--space-medium); }
+
+/* ---------------------------------------------------------------- cards */
+
+.vd-card {
+  overflow: hidden; background: var(--surface);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-large);
+}
+.vd-setup { display: flex; flex-direction: column; gap: var(--space-medium); padding: var(--space-large); }
+.vd-setup__status { display: flex; align-items: center; }
+/* SimpleProgressBar sits on the hover colour here. */
+.vd-track { width: 100%; }
+.vd-track .nk-progress { background: var(--hover); }
+
+.vd-clip__running {
+  display: flex; align-items: center; justify-content: center; width: 100%;
+  background: var(--background-variant);
+}
+.vd-render {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-medium);
+  width: 100%; max-width: 360px; padding: var(--space-xl);
+}
+.vd-render__stage { display: flex; align-items: center; gap: var(--space-small); }
+
+.vd-clip__body { display: flex; flex-direction: column; gap: var(--space-small); padding: var(--space-large); }
+.vd-clip__prompt {
+  color: var(--text-primary); white-space: pre-wrap; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden;
+}
+/* Pulled left by the actions' own inset, so their text lines up with the prompt's. */
+.vd-clip__actions {
+  display: flex; flex-wrap: wrap; gap: var(--space-tiny);
+  margin-left: calc(-1 * (var(--space-small) + var(--space-micro)));
+}
+
+/* ---------------------------------------------------------------- the player */
+
+/* On the code background (Carbon Black in both themes): the clip's own letterbox. */
+.vd-player {
+  position: relative; display: flex; align-items: center; justify-content: center; width: 100%;
+  overflow: hidden; background: var(--code-bg); cursor: pointer;
+}
+.vd-player__canvas { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; }
+.vd-player__error { position: relative; padding: var(--space-large); color: var(--syntax-comment); text-align: center; }
+.vd-player__play {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: var(--space-massive); height: var(--space-massive); border-radius: 50%;
+  background: color-mix(in srgb, var(--carbon-black) 55%, transparent); color: var(--code-text);
+}

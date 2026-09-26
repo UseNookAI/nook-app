@@ -1,0 +1,92 @@
+[package]
+name = "nook-core"
+description = "Nook's engine room: the local runtime, the Code worker, sessions, the gateway, video, updates. No UI."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+build = "build.rs"
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+bytes.workspace = true
+reqwest.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+parking_lot.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+url.workspace = true
+regex.workspace = true
+rand.workspace = true
+# Archives (engine zips), the gateway, signatures, diffs, HTML, walking trees.
+zip = { version = "2", default-features = false, features = ["deflate"] }
+axum = { version = "0.8", features = ["macros"] }
+tower = "0.5"
+ed25519-dalek = { version = "2", features = ["pkcs8"] }
+similar = "2"
+scraper = "0.22"
+html-escape = "0.2"
+encoding_rs = "0.8"
+walkdir = "2"
+ignore = "0.4"
+globset = "0.4"
+sysinfo = "0.33"
+once_cell = "1"
+async-trait = "0.1"
+# Voice prompt capture.
+cpal = "0.15"
+hound = "3"
+# Flows: reading recordings, podcasts and videos' sound (MP3, AAC/M4A/MP4, FLAC, Vorbis, WAV,
+# AIFF, CAF, MKV/WebM) without FFmpeg.
+symphonia = { version = "0.5", features = ["all"] }
+# Flows: the PDF editor. PDFium (Chrome's PDF engine) is downloaded like an engine and bound at
+# run time; its pages are handed to the page as PNG.
+pdfium-render = { version = "0.9.4", default-features = false, features = ["pdfium_7881", "image_025", "thread_safe"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+# Text drawn as pixels: the likely fonts are drawn to compare with it.
+ab_glyph = "0.2"
+# PDFium comes as a .tgz.
+flate2 = "1"
+tar = "0.4"
+# The worker's web access: walking and pruning a parsed page (scraper's tree), PDFs as text,
+# the Accept-Language a browser would send.
+ego-tree = "0.10"
+pdf-extract = "0.12"
+sys-locale = "0.3"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_Foundation",
+    "Win32_System_JobObjects",
+    "Win32_System_Registry",
+    "Win32_System_Threading",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Shell",
+] }
+# Windows' own text recognition, for text that is part of a picture in a PDF.
+windows = { version = "0.61", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }
+# A fake web server that gzips a page it was not asked to (web access tests).
+flate2 = "1"

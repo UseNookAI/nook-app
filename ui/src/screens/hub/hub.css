@@ -1,0 +1,74 @@
+/* The hub frame and its shared pieces (component/hub/*). */
+
+.nk-hub { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--background-variant); }
+
+/* HubScreen's StartingCard: over the whole window, taking no clicks while it shows. */
+.nk-starting { position: fixed; inset: 0; z-index: 1050; display: flex; align-items: center; justify-content: center; background: var(--scrim); }
+.nk-starting__card {
+  display: flex; flex-direction: column; align-items: center; gap: var(--space-medium);
+  min-width: 400px; margin: var(--space-large); padding: var(--space-xl);
+  border: var(--border-width) solid var(--border); border-radius: var(--radius-large);
+  background: var(--surface); color: var(--text-primary);
+}
+
+/* Greeting */
+.nk-greeting { display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; }
+.nk-greeting__row { display: flex; align-items: center; gap: var(--space-large); }
+.nk-greeting__title { color: var(--text-primary); text-align: center; }
+.nk-greeting__subtitle { margin-top: var(--space-medium); color: var(--text-secondary); text-align: center; }
+
+/* KindSwitch */
+.nk-kind-switch {
+  flex: none; display: inline-flex; gap: var(--space-micro); padding: calc(var(--space-micro) + 1px);
+  border-radius: var(--radius-round); background: var(--hover);
+}
+.nk-kind-pill {
+  display: inline-flex; align-items: center; gap: calc(var(--space-tiny) + var(--space-micro));
+  padding: calc(var(--space-tiny) + var(--space-micro)) calc(var(--space-medium) + var(--space-micro));
+  border: var(--border-width) solid transparent; border-radius: var(--radius-round); background: transparent;
+  color: var(--text-secondary); font: 500 14px/20px var(--font-body); letter-spacing: -0.01em; cursor: pointer;
+}
+.nk-kind-pill:hover { color: var(--text-primary); }
+.nk-kind-pill--selected { background: var(--surface); border-color: var(--border); color: var(--text-primary); font-weight: 600; }
+
+/* PagePane */
+.nk-page-pane {
+  position: relative; display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0;
+  margin: 0 var(--pane-margin) var(--pane-margin) 0; overflow: hidden;
+  border: var(--border-width) solid var(--border); border-radius: var(--pane-radius); background: var(--background);
+}
+
+/* ToolbarPill. It gives way in a crowded row (the label ellipsises), as Compose measures a Row; a row
+   whose pills must keep their width says flex: none for them (a session's header, the Code page's). */
+.nk-toolbar-pill {
+  display: inline-flex; align-items: center; gap: calc(var(--space-tiny) + var(--space-micro)); flex: 0 1 auto; min-width: 0;
+  height: calc(var(--height-button-compact) - 2px); padding: 0 calc(var(--space-small) + var(--space-micro));
+  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-secondary);
+  font: 500 14px/20px var(--font-body); letter-spacing: -0.01em; cursor: pointer; transition: background-color 120ms;
+}
+.nk-toolbar-pill:hover:not(:disabled) { background: var(--hover); color: var(--text-primary); }
+.nk-toolbar-pill:disabled { color: var(--text-disabled); cursor: default; }
+.nk-toolbar-pill--emphasised, .nk-toolbar-pill--emphasised:hover:not(:disabled) { background: var(--accent-soft); color: var(--primary-variant); }
+.nk-toolbar-pill__text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 4 px after the label, where the pill's gap is 6. */
+.nk-toolbar-pill__chevron { margin-left: calc(-1 * var(--space-micro)); transition: transform 200ms; }
+.nk-toolbar-pill__chevron--open { transform: rotate(180deg); }
+
+/* The composer's card (CodeComposer.kt, VideoScreen.kt's composer): the raised surface with a
+   hairline, the XL radius and the shadow, 14 px above the text, 16 on its left and 10 elsewhere. */
+.nk-composer {
+  padding: calc(var(--space-medium) + var(--space-tiny)) var(--space-medium) var(--space-medium) var(--space-large);
+  background: var(--surface); border: var(--border-width) solid var(--border); border-radius: var(--radius-xl);
+  box-shadow: var(--shadow);
+}
+
+/* PromptActionIconButton */
+.nk-prompt-action {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: var(--height-button-compact); height: var(--height-button-compact); padding: 0;
+  border: none; border-radius: 50%; background: var(--primary); color: var(--on-primary); cursor: pointer;
+}
+.nk-prompt-action:hover:not(:disabled) { background: var(--text-secondary); }
+.nk-prompt-action:disabled { background: var(--text-disabled); color: var(--background); cursor: default; }
+.nk-prompt-action--loading { background: var(--hover); }
+.nk-prompt-action__stop { width: 10px; height: 10px; border-radius: 2px; background: var(--on-primary); }

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Nook third-party notices</title>
+</head>
+<body style="margin:0;background:#FFFDF5;">
+<div style="max-width:820px;margin:0 auto;padding:32px 28px;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;line-height:1.55;color:#1B1A18;">
+
+    <h1 style="font-size:28px;margin:0 0 12px;font-weight:600;">Third-party notices</h1>
+
+    <p style="color:#5A5751;font-size:14px;margin:4px 0 20px;">
+        <strong>For Nook</strong> 0.3 &nbsp;·&nbsp; <strong>Updated</strong> 22 September 2026
+    </p>
+
+    <p>
+        Nook is built on open-source software and ships with open-source fonts and a Java runtime. This
+        page names them and their licences. The full licence texts are in the <code>runtime/legal</code>
+        folder next to the application for the Java runtime, and in each project's repository for the
+        rest; the short licences are reproduced at the end of this page. Nothing here changes the
+        licence of Nook itself, which is in the Nook software licence.
+    </p>
+
+    <hr style="border:none;border-top:1px solid #E3DCCB;margin:28px 0;">
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Inference engines (downloaded on first use)</h2>
+    <ul style="padding-left:22px;">
+        <li><strong>llama.cpp</strong> and <strong>ggml</strong> — Copyright (c) 2023-2026 The ggml authors. MIT License.
+            <a href="https://github.com/ggml-org/llama.cpp">github.com/ggml-org/llama.cpp</a></li>
+        <li><strong>whisper.cpp</strong> — Copyright (c) 2023-2026 The ggml authors. MIT License.
+            <a href="https://github.com/ggml-org/whisper.cpp">github.com/ggml-org/whisper.cpp</a></li>
+        <li><strong>stable-diffusion.cpp</strong> — Copyright (c) 2023 leejet. MIT License.
+            <a href="https://github.com/leejet/stable-diffusion.cpp">github.com/leejet/stable-diffusion.cpp</a></li>
+        <li><strong>audio.cpp</strong> — Copyright 2026 ShugoAI LLC. Apache License 2.0. The voices of the flows run on it, as a
+            separate program. <a href="https://github.com/0xShug0/audio.cpp">github.com/0xShug0/audio.cpp</a>. The voice models it
+            runs, downloaded on first use: <strong>Qwen3-TTS</strong> (Alibaba, Apache License 2.0), <strong>VoxCPM2</strong>
+            (OpenBMB, Apache License 2.0) and <strong>Supertonic 3</strong> (Supertone, BigScience OpenRAIL-M: its use restrictions
+            apply to what is made with it and are passed on to you).</li>
+        <li><strong>PDFium</strong> — Copyright 2014 The PDFium Authors. BSD 3-Clause License (with the FreeType, libjpeg-turbo,
+            OpenJPEG, lcms, zlib and other licences of its parts, kept beside it in the runtime folder). The PDF editor reads,
+            draws and writes PDFs with it; the Windows build is by Benoit Blanchon.
+            <a href="https://pdfium.googlesource.com/pdfium/">pdfium.googlesource.com</a>,
+            <a href="https://github.com/bblanchon/pdfium-binaries">github.com/bblanchon/pdfium-binaries</a></li>
+        <li><strong>FFmpeg</strong> — the LGPL build of FFmpeg 8.1 for Windows by BtbN, run as a separate program to read
+            what Nook does not read itself and to put a translated video back together. GNU Lesser General Public License,
+            version 2.1 or later; the build's LICENSE.txt is kept beside it in the runtime folder.
+            <a href="https://ffmpeg.org">ffmpeg.org</a>, <a href="https://github.com/BtbN/FFmpeg-Builds">github.com/BtbN/FFmpeg-Builds</a></li>
+        <li><strong>NVIDIA CUDA runtime libraries</strong> (cudart, cuBLAS, cuBLASLt, and cuFFT for the voice engine),
+            fetched with the CUDA build of the engines — NVIDIA Corporation, under the NVIDIA CUDA Toolkit End User License Agreement, which permits
+            their redistribution with an application.
+            <a href="https://docs.nvidia.com/cuda/eula/">docs.nvidia.com/cuda/eula</a></li>
+    </ul>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Models</h2>
+    <p>
+        Models are downloaded from their publishers when you choose them, each under the publisher's own
+        licence, named on the model's card before you download it and on the page it comes from. Some
+        licences restrict commercial use or ask for attribution (the Llama 3.1 community licence, the
+        Stability AI community licence for SD Turbo and SDXL Turbo); it is your use, so it is your licence
+        to keep.
+    </p>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Java runtime</h2>
+    <ul style="padding-left:22px;">
+        <li><strong>Eclipse Temurin</strong> (OpenJDK 21) — GNU General Public License, version 2, with the Classpath
+            Exception; the licence and the notices of its own third-party parts are in <code>runtime/legal</code>
+            next to Nook.exe. <a href="https://adoptium.net">adoptium.net</a></li>
+    </ul>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Fonts (SIL Open Font License 1.1)</h2>
+    <ul style="padding-left:22px;">
+        <li><strong>DM Sans</strong> — Copyright 2014 The DM Sans Project Authors (github.com/googlefonts/dm-fonts)</li>
+        <li><strong>Inter</strong> — Copyright 2016 The Inter Project Authors (github.com/rsms/inter)</li>
+        <li><strong>JetBrains Mono</strong> — Copyright 2020 The JetBrains Mono Project Authors (github.com/JetBrains/JetBrainsMono)</li>
+        <li><strong>Manrope</strong> — Copyright 2018 The Manrope Project Authors (github.com/sharanda/manrope)</li>
+        <li><strong>Exo 2</strong> — Copyright 2013 The Exo 2 Project Authors (github.com/NDISCOVER/Exo-2.0)</li>
+    </ul>
+    <p>Each is licensed under the SIL Open Font License, Version 1.1, reproduced below. The fonts are
+        embedded in Nook unmodified and are not sold on their own.</p>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Libraries</h2>
+    <p>The application is written in Kotlin and Java and uses these libraries, grouped by licence.</p>
+    <ul style="padding-left:22px;">
+        <li><strong>Apache License 2.0</strong>: Spring Framework and Spring Boot, Spring Data JPA, Kotlin and
+            kotlinx.coroutines, Jetpack Compose for Desktop and Skiko (JetBrains), Jackson, Apache Tika and the
+            parsers it brings (PDFBox, POI, commons-compress, commons-io, xerces, Apache mime4j and others),
+            Flyway, HikariCP, Tomcat Embed, Java Native Access (JNA, under its Apache 2.0 option), Bouncy Castle
+            (MIT-style licence), SnakeYAML, Byte Buddy, ASM (BSD-3), RapidOCR and the RapidAI OCR models, ONNX
+            Runtime (MIT), OSHI (MIT), commonmark-java (BSD-2), multiplatform-markdown-renderer (Apache 2.0),
+            highlights (Apache 2.0), Rome, jdom2, metadata-extractor, jai-imageio-core (BSD-3), jaxb and the
+            Jakarta APIs (EPL 2.0 / GPL with Classpath Exception, used under the EPL).</li>
+        <li><strong>MIT License</strong>: SLF4J, OSHI, ONNX Runtime, jspecify and others as marked in their
+            repositories.</li>
+        <li><strong>Eclipse Public License 1.0 and 2.0</strong>: Logback (EPL 1.0 or LGPL 2.1, used under the EPL), H2
+            Database Engine (MPL 2.0 or EPL 1.0), the Jakarta APIs.</li>
+        <li><strong>GNU Lesser General Public License 2.1</strong>: Hibernate ORM and Hibernate Commons Annotations,
+            JFreeChart (LGPL 2.1 or later), jhighlight (CDDL 1.0 or LGPL 2.1). They are used as unmodified
+            libraries; you may replace them with your own versions and reverse engineer Nook as far as needed to
+            debug such a change, as their licences require.</li>
+        <li><strong>GNU General Public License 2 with the Classpath Exception</strong>: JLaTeXMath and its fonts.</li>
+        <li><strong>Other</strong>: junrar (the unRAR licence: its source may not be used to re-create the RAR
+            compression algorithm), TagSoup (Apache 2.0), Brotli decoder (MIT).</li>
+    </ul>
+    <p style="color:#5A5751;font-size:14px;">
+        A complete, machine-generated list with every version and licence text is planned for the first
+        public build; until then the repository's build files are the record.
+    </p>
+
+    <hr style="border:none;border-top:1px solid #E3DCCB;margin:28px 0;">
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">MIT License</h2>
+    <p style="font-size:14px;color:#3A3834;">
+        Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+        associated documentation files (the "Software"), to deal in the Software without restriction,
+        including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense,
+        and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so,
+        subject to the following conditions: The above copyright notice and this permission notice shall be
+        included in all copies or substantial portions of the Software. THE SOFTWARE IS PROVIDED "AS IS",
+        WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+        MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+        COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+        TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+        IN THE SOFTWARE.
+    </p>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">SIL Open Font License, Version 1.1</h2>
+    <p style="font-size:14px;color:#3A3834;">
+        This Font Software is licensed under the SIL Open Font License, Version 1.1. This license is copied
+        below, and is also available with a FAQ at <a href="https://openfontlicense.org">openfontlicense.org</a>.
+    </p>
+    <p style="font-size:14px;color:#3A3834;">
+        PREAMBLE. The goals of the Open Font License (OFL) are to stimulate worldwide development of collaborative
+        font projects, to support the font creation efforts of academic and linguistic communities, and to
+        provide a free and open framework in which fonts may be shared and improved in partnership with others.
+        The OFL allows the licensed fonts to be used, studied, modified and redistributed freely as long as they
+        are not sold by themselves. The fonts, including any derivative works, can be bundled, embedded,
+        redistributed and/or sold with any software provided that any reserved names are not used by derivative
+        works. The fonts and derivatives, however, cannot be released under any other type of license. The
+        requirement for fonts to remain under this license does not apply to any document created using the
+        fonts or their derivatives.
+    </p>
+    <p style="font-size:14px;color:#3A3834;">
+        DEFINITIONS. "Font Software" refers to the set of files released by the Copyright Holder(s) under this
+        license and clearly marked as such. This may include source files, build scripts and documentation.
+        "Reserved Font Name" refers to any names specified as such after the copyright statement(s). "Original
+        Version" refers to the collection of Font Software components as distributed by the Copyright Holder(s).
+        "Modified Version" refers to any derivative made by adding to, deleting, or substituting, in part or in
+        whole, any of the components of the Original Version, by changing formats or by porting the Font Software
+        to a new environment. "Author" refers to any designer, engineer, programmer, technical writer or other
+        person who contributed to the Font Software.
+    </p>
+    <p style="font-size:14px;color:#3A3834;">
+        PERMISSION &amp; CONDITIONS. Permission is hereby granted, free of charge, to any person obtaining a copy
+        of the Font Software, to use, study, copy, merge, embed, modify, redistribute, and sell modified and
+        unmodified copies of the Font Software, subject to the following conditions: 1) Neither the Font Software
+        nor any of its individual components, in Original or Modified Versions, may be sold by itself. 2)
+        Original or Modified Versions of the Font Software may be bundled, redistributed and/or sold with any
+        software, provided that each copy contains the above copyright notice and this license. These can be
+        included either as stand-alone text files, human-readable headers or in the appropriate machine-readable
+        metadata fields within text or binary files as long as those fields can be easily viewed by the user. 3)
+        No Modified Version of the Font Software may use the Reserved Font Name(s) unless explicit written
+        permission is granted by the corresponding Copyright Holder. This restriction only applies to the primary
+        font name as presented to the users. 4) The name(s) of the Copyright Holder(s) or the Author(s) of the
+        Font Software shall not be used to promote, endorse or advertise any Modified Version, except to
+        acknowledge the contribution(s) of the Copyright Holder(s) and the Author(s) or with their explicit
+        written permission. 5) The Font Software, modified or unmodified, in part or in whole, must be
+        distributed entirely under this license, and must not be distributed under any other license. The
+        requirement for fonts to remain under this license does not apply to any document created using the
+        Font Software.
+    </p>
+    <p style="font-size:14px;color:#3A3834;">
+        TERMINATION. This license becomes null and void if any of the above conditions are not met.
+    </p>
+    <p style="font-size:14px;color:#3A3834;">
+        DISCLAIMER. THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+        INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+        NONINFRINGEMENT OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE COPYRIGHT HOLDER
+        BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL,
+        OR CONSEQUENTIAL DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF THE
+        USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM OTHER DEALINGS IN THE FONT SOFTWARE.
+    </p>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">Apache License 2.0</h2>
+    <p style="font-size:14px;color:#3A3834;">
+        Licensed under the Apache License, Version 2.0 (the "License"); you may not use these files except in
+        compliance with the License. You may obtain a copy of the License at
+        <a href="https://www.apache.org/licenses/LICENSE-2.0">www.apache.org/licenses/LICENSE-2.0</a>. Unless
+        required by applicable law or agreed to in writing, software distributed under the License is
+        distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+        See the License for the specific language governing permissions and limitations under the License.
+    </p>
+
+    <h2 style="font-size:20px;font-weight:600;margin:24px 0 10px;">The other licences</h2>
+    <p style="font-size:14px;color:#3A3834;">
+        The Eclipse Public License (<a href="https://www.eclipse.org/legal/epl-2.0/">eclipse.org/legal/epl-2.0</a>),
+        the Mozilla Public License 2.0 (<a href="https://www.mozilla.org/MPL/2.0/">mozilla.org/MPL/2.0</a>), the
+        GNU Lesser General Public License 2.1 (<a href="https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html">gnu.org/licenses/old-licenses/lgpl-2.1</a>),
+        the GNU General Public License 2 with the Classpath Exception
+        (<a href="https://openjdk.org/legal/gplv2+ce.html">openjdk.org/legal/gplv2+ce</a>) and the BSD licences
+        are at the addresses given; the copies that apply are in each project's repository and, for the Java
+        runtime, in <code>runtime/legal</code>.
+    </p>
+
+</div>
+</body>
+</html>

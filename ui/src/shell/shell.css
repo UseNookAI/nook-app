@@ -1,0 +1,96 @@
+/* The window: title strip, content, setup header (NookAgentApplication.App, NookTopBar.kt). */
+
+.nk-app {
+  position: relative; display: flex; flex-direction: column; height: 100%;
+  background: var(--background-variant); color: var(--text-primary); overflow: hidden;
+}
+.nk-app__content { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* The welcome and erase screens leave 24 px under the transparent header, the hub the whole strip. */
+.nk-app--setup .nk-app__content { padding-top: var(--space-xl); }
+
+.nk-topbar {
+  display: flex; align-items: center; flex: none; height: var(--height-topbar);
+  padding: 0 var(--space-medium) 0 var(--space-large); background: var(--background-variant);
+}
+.nk-topbar--setup {
+  position: absolute; top: 0; left: 0; right: 0; z-index: 10;
+  justify-content: flex-end; padding: 0 var(--space-medium); background: transparent;
+}
+/* Over the erase screen's dark backdrop the controls are drawn light, or they would not show. */
+.nk-topbar--on-scrim .nk-window-control { color: var(--on-scrim); }
+.nk-topbar--on-scrim .nk-window-control:hover { background: var(--on-scrim-hover); color: var(--on-accent); }
+.nk-topbar--on-scrim .nk-window-control--danger:hover { background: var(--error); }
+.nk-topbar--on-scrim .nk-glyph-restore__front { background: transparent; }
+.nk-topbar__spacer { flex: 1; align-self: stretch; pointer-events: none; }
+.nk-button.nk-topbar__update {
+  height: calc(var(--height-button-compact) - 4px); padding: 0 var(--space-medium);
+  margin-right: var(--space-medium); font: 600 12px/16px var(--font-body); letter-spacing: 0;
+}
+
+.nk-brand { display: flex; align-items: center; margin-right: var(--space-small); pointer-events: none; }
+.nk-brand__word {
+  margin-left: calc(var(--space-small) + var(--space-micro));
+  font: 600 17px/24px var(--font-heading); letter-spacing: -0.02em; color: var(--text-primary);
+}
+
+/* TopBarButton: a 28 px square that lights up under the pointer. */
+.nk-topbar-button {
+  position: relative; display: grid; place-items: center; flex: none;
+  width: var(--topbar-button); height: var(--topbar-button); padding: 0;
+  border: none; border-radius: var(--radius-small); background: transparent;
+  color: var(--text-secondary); cursor: pointer; transition: background-color 120ms;
+}
+.nk-topbar-button:hover { background: var(--hover); }
+.nk-sidebar-edge { transition: transform 220ms ease; }
+
+/* HubNav: Chat, Code and Flows, an icon each on a soft track; the open page's on a raised pill. */
+.nk-topbar-nav {
+  display: flex; align-items: center; flex: none; gap: var(--space-micro);
+  margin-left: var(--space-medium); padding: calc(var(--space-micro) + 1px);
+  border-radius: var(--radius-round); background: var(--hover);
+}
+.nk-topbar-nav__item {
+  display: grid; place-items: center; width: 34px; height: 24px; padding: 0;
+  border: var(--border-width) solid transparent; border-radius: var(--radius-round); background: transparent;
+  color: var(--text-secondary); cursor: pointer; transition: background-color 120ms, color 120ms;
+}
+.nk-topbar-nav__item:hover { color: var(--text-primary); }
+.nk-topbar-nav__item--active { background: var(--surface); border-color: var(--border); color: var(--text-primary); }
+.nk-sidebar-edge--collapsed { transform: translateX(-3px); }
+
+.nk-theme-toggle { margin-right: var(--space-small); overflow: hidden; }
+.nk-theme-toggle__icon { position: absolute; inset: 0; display: grid; place-items: center; }
+.nk-theme-toggle__icon--in { animation: nk-theme-in 300ms ease-out both; }
+.nk-theme-toggle__icon--out { animation: nk-theme-out 300ms ease-in both; }
+@keyframes nk-theme-in {
+  from { opacity: 0; transform: rotate(-90deg) scale(0.5); }
+  87% { opacity: 1; }
+  to { opacity: 1; transform: rotate(0) scale(1); }
+}
+@keyframes nk-theme-out {
+  from { opacity: 1; transform: rotate(0) scale(1); }
+  53% { opacity: 0; }
+  to { opacity: 0; transform: rotate(90deg) scale(0.5); }
+}
+
+/* NookWindowControls: 28 px squares, 2 px apart. */
+.nk-window-controls { display: flex; align-items: center; gap: var(--space-micro); }
+.nk-window-control {
+  display: grid; place-items: center; width: var(--topbar-button); height: var(--topbar-button); padding: 0;
+  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-secondary);
+}
+.nk-window-control:hover { background: var(--hover); color: var(--text-primary); }
+.nk-window-control--danger:hover { background: var(--error); color: var(--on-accent); }
+.nk-glyph-minimise { width: 10px; height: 1px; background: currentColor; }
+.nk-glyph-maximise { width: 9px; height: 9px; border: 1px solid currentColor; border-radius: 2px; }
+.nk-glyph-restore { position: relative; width: 9px; height: 9px; }
+.nk-glyph-restore__back, .nk-glyph-restore__front {
+  position: absolute; width: 7px; height: 7px; border: 1px solid currentColor; border-radius: 1px;
+}
+.nk-glyph-restore__back { top: 0; right: 0; }
+.nk-glyph-restore__front { bottom: 0; left: 0; background: var(--background-variant); }
+
+/* The update dialog's progress line. */
+.nk-update__progress { margin-top: var(--space-large); }
+.nk-update__percent { margin-top: var(--space-small); color: var(--text-primary); }
+.nk-update__error { margin-top: var(--space-small); color: var(--error); }

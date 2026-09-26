@@ -1,0 +1,7 @@
+{
+  "hostName": "user@download-host",
+  "hostRoot": "/srv/dl/nook",
+  "sshKey": "C:\\path\\to\\download-host-ssh-key.pem",
+  "releaseKey": "C:\\path\\to\\release-signing.json",
+  "folderKey": "C:\\path\\to\\test-feed-signing.json"
+}

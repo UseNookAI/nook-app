@@ -1,0 +1,29 @@
+[package]
+name = "nook-release"
+description = "Nook releases: the signing key, the signed latest.json manifest, and its check (the Rust port of tools/release.py)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[[bin]]
+name = "nook-release"
+path = "src/main.rs"
+
+[dependencies]
+# The app's own manifest code, so what this signs is exactly what the app verifies.
+nook-core = { path = "../nook-core" }
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+chrono.workspace = true
+rand.workspace = true
+regex.workspace = true
+url.workspace = true
+ed25519-dalek = "2"
+percent-encoding = "2"
+
+[dev-dependencies]
+tempfile.workspace = true

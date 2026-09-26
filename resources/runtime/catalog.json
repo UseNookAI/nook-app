@@ -1,0 +1,469 @@
+{
+  "schema": 2,
+  "defaultChatModel": "qwen3-8b-q4km",
+  "defaultSpeechModel": "whisper-small",
+  "defaultImageModel": "sd-turbo",
+  "defaultVideoModel": "wan2.1-t2v-1.3b",
+  "models": [
+    {
+      "id": "qwen3-4b-q4km",
+      "displayName": "Qwen3 4B",
+      "family": "qwen3",
+      "task": "chat",
+      "paramsB": 4.0,
+      "description": "Fast general assistant for 6 GB cards. Good at writing, summarising and everyday questions.",
+      "capabilities": [
+        "tools",
+        "json_schema",
+        "thinking"
+      ],
+      "artifacts": [
+        {
+          "file": "Qwen3-4B-Q4_K_M.gguf",
+          "url": "https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/main/Qwen3-4B-Q4_K_M.gguf",
+          "sha256": "7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5",
+          "bytes": 2497281632
+        }
+      ],
+      "defaults": {
+        "nCtx": 8192,
+        "temperature": 0.7
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "slow"
+      },
+      "license": "Apache-2.0",
+      "minVramGb": 4
+    },
+    {
+      "id": "qwen3-8b-q4km",
+      "displayName": "Qwen3 8B",
+      "family": "qwen3",
+      "task": "chat",
+      "paramsB": 8.2,
+      "description": "The default chat model. Strong reasoning, coding and tool use on an 8 GB card.",
+      "capabilities": [
+        "tools",
+        "json_schema",
+        "thinking"
+      ],
+      "artifacts": [
+        {
+          "file": "Qwen3-8B-Q4_K_M.gguf",
+          "url": "https://huggingface.co/Qwen/Qwen3-8B-GGUF/resolve/main/Qwen3-8B-Q4_K_M.gguf",
+          "sha256": "d98cdcbd03e17ce47681435b5150e34c1417f50b5c0019dd560e4882c5745785",
+          "bytes": 5027784096
+        }
+      ],
+      "defaults": {
+        "nCtx": 8192,
+        "temperature": 0.7
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "slow"
+      },
+      "license": "Apache-2.0",
+      "minVramGb": 6
+    },
+    {
+      "id": "llama-3.1-8b-instruct-q4km",
+      "displayName": "Llama 3.1 8B Instruct",
+      "family": "llama-3.1",
+      "task": "chat",
+      "paramsB": 8.0,
+      "description": "Meta's 8B instruction model. A dependable all-rounder with tool calling.",
+      "capabilities": [
+        "tools",
+        "json_schema"
+      ],
+      "artifacts": [
+        {
+          "file": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+          "url": "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
+          "sha256": "7b064f5842bf9532c91456deda288a1b672397a54fa729aa665952863033557c",
+          "bytes": 4920734656
+        }
+      ],
+      "defaults": {
+        "nCtx": 8192,
+        "temperature": 0.7
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "slow"
+      },
+      "license": "Llama-3.1",
+      "minVramGb": 6
+    },
+    {
+      "id": "nomic-embed-text-v1.5-q8",
+      "displayName": "Nomic Embed Text v1.5",
+      "family": "nomic-embed",
+      "task": "embed",
+      "paramsB": 0.14,
+      "description": "Small embedding model for search and retrieval.",
+      "capabilities": [
+        "embeddings"
+      ],
+      "artifacts": [
+        {
+          "file": "nomic-embed-text-v1.5.Q8_0.gguf",
+          "url": "https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q8_0.gguf",
+          "sha256": "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
+          "bytes": 146000000
+        }
+      ],
+      "defaults": {
+        "nCtx": 2048
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "verified"
+      },
+      "license": "Apache-2.0",
+      "minVramGb": 1
+    },
+    {
+      "id": "whisper-large-v3-turbo",
+      "displayName": "Whisper Large v3 Turbo",
+      "family": "whisper",
+      "task": "speech",
+      "paramsB": 0.81,
+      "description": "The most accurate speech to text in close to a hundred languages, what the flows listen with. A few seconds per minute of speech on an NVIDIA GPU.",
+      "capabilities": [
+        "transcription",
+        "multilingual"
+      ],
+      "artifacts": [
+        {
+          "file": "ggml-large-v3-turbo-q5_0.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin",
+          "sha256": "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2",
+          "bytes": 574041195,
+          "format": "ggml"
+        }
+      ],
+      "defaults": {},
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "cpu",
+        "cpu": "cpu"
+      },
+      "license": "MIT",
+      "minVramGb": 2
+    },
+    {
+      "id": "whisper-small",
+      "displayName": "Whisper Small",
+      "family": "whisper",
+      "task": "speech",
+      "paramsB": 0.24,
+      "description": "Speech to text for the voice prompt. Multilingual, good accuracy, about a second per sentence on a GPU.",
+      "capabilities": [
+        "transcription",
+        "multilingual"
+      ],
+      "artifacts": [
+        {
+          "file": "ggml-small.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+          "sha256": "1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b",
+          "bytes": 487601967,
+          "format": "ggml"
+        }
+      ],
+      "defaults": {},
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "cpu",
+        "cpu": "verified"
+      },
+      "license": "MIT",
+      "minVramGb": 1
+    },
+    {
+      "id": "whisper-base",
+      "displayName": "Whisper Base",
+      "family": "whisper",
+      "task": "speech",
+      "paramsB": 0.07,
+      "description": "Smaller, faster speech to text. Fine for short English prompts on any machine.",
+      "capabilities": [
+        "transcription",
+        "multilingual"
+      ],
+      "artifacts": [
+        {
+          "file": "ggml-base.bin",
+          "url": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+          "sha256": "60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe",
+          "bytes": 147951465,
+          "format": "ggml"
+        }
+      ],
+      "defaults": {},
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "cpu",
+        "cpu": "verified"
+      },
+      "license": "MIT",
+      "minVramGb": 0
+    },
+    {
+      "id": "sd-turbo",
+      "displayName": "SD Turbo",
+      "family": "sd-turbo",
+      "task": "image",
+      "paramsB": 0.86,
+      "description": "The default image model. 512 by 512 pictures in one to four steps; fits a 6 GB card.",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "artifacts": [
+        {
+          "file": "sd_turbo.safetensors",
+          "url": "https://huggingface.co/stabilityai/sd-turbo/resolve/main/sd_turbo.safetensors",
+          "sha256": "3f067a1b943cf162f2b8f8588f6cf5824bd5b4c7d1d88d87164b9ca123616549",
+          "bytes": 5214561328,
+          "format": "safetensors"
+        }
+      ],
+      "defaults": {
+        "width": "512",
+        "height": "512",
+        "steps": "4",
+        "cfg": "1.0",
+        "sampler": "euler",
+        "weightType": "f16",
+        "vramGb": "4"
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "slow"
+      },
+      "license": "stabilityai-community",
+      "minVramGb": 4
+    },
+    {
+      "id": "sdxl-turbo",
+      "displayName": "SDXL Turbo",
+      "family": "sdxl-turbo",
+      "task": "image",
+      "paramsB": 3.5,
+      "description": "Higher quality 512 by 512 pictures in one to four steps. Needs an 8 GB card; runs at 8-bit weights.",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "artifacts": [
+        {
+          "file": "sd_xl_turbo_1.0_fp16.safetensors",
+          "url": "https://huggingface.co/stabilityai/sdxl-turbo/resolve/main/sd_xl_turbo_1.0_fp16.safetensors",
+          "sha256": "e869ac7d6942cb327d68d5ed83a40447aadf20e0c3358d98b2cc9e270db0da26",
+          "bytes": 6938081905,
+          "format": "safetensors"
+        }
+      ],
+      "defaults": {
+        "width": "512",
+        "height": "512",
+        "steps": "4",
+        "cfg": "1.0",
+        "sampler": "euler",
+        "weightType": "q8_0",
+        "vramGb": "6"
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "verified",
+        "cpu": "slow"
+      },
+      "license": "stabilityai-community",
+      "minVramGb": 8
+    },
+    {
+      "id": "z-image-turbo",
+      "displayName": "Z-Image Turbo",
+      "family": "z-image",
+      "task": "image",
+      "paramsB": 6.0,
+      "description": "The best local picture quality: sharp 1024 by 1024 images in 8 steps. Three files; the text encoder runs from system memory so it fits an 8 GB card.",
+      "capabilities": [
+        "text-to-image"
+      ],
+      "artifacts": [
+        {
+          "file": "z_image_turbo-Q4_K.gguf",
+          "url": "https://huggingface.co/leejet/Z-Image-Turbo-GGUF/resolve/main/z_image_turbo-Q4_K.gguf",
+          "sha256": "14b375ab4f226bc5378f68f37e899ef3c2242b8541e61e2bc1aff40976086fbd",
+          "bytes": 3864250304,
+          "format": "gguf"
+        },
+        {
+          "file": "ae.safetensors",
+          "url": "https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors",
+          "sha256": "afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38",
+          "bytes": 335304388,
+          "format": "safetensors"
+        },
+        {
+          "file": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3-4B-Instruct-2507-GGUF/resolve/main/Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+          "sha256": "3605803b982cb64aead44f6c1b2ae36e3acdb41d8e46c8a94c6533bc4c67e597",
+          "bytes": 2497281120,
+          "format": "gguf"
+        }
+      ],
+      "defaults": {
+        "width": "1024",
+        "height": "1024",
+        "steps": "8",
+        "cfg": "1.0",
+        "sampler": "euler",
+        "weightType": "",
+        "vramGb": "6",
+        "loader": "diffusion",
+        "vae": "ae.safetensors",
+        "llm": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+        "flags": "--offload-to-cpu --diffusion-fa"
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "untested",
+        "cpu": "slow"
+      },
+      "license": "apache-2.0",
+      "minVramGb": 6
+    },
+    {
+      "id": "wan2.1-t2v-1.3b",
+      "displayName": "Wan 2.1 T2V 1.3B",
+      "family": "wan",
+      "task": "video",
+      "paramsB": 1.3,
+      "description": "Short video clips from a prompt, 832 by 480 at 16 frames a second. Three files; the text encoder runs on the processor and the rest on the GPU, so it fits an 8 GB card. A 2-second clip takes about 5 minutes on an RTX 4060.",
+      "capabilities": [
+        "text-to-video"
+      ],
+      "artifacts": [
+        {
+          "file": "Wan2.1-T2V-1.3B-Q8_0.gguf",
+          "url": "https://huggingface.co/samuelchristlie/Wan2.1-T2V-1.3B-GGUF/resolve/main/Wan2.1-T2V-1.3B-Q8_0.gguf",
+          "sha256": "30a44f695b4275a915810120360d6fd26152ec303c2226b5152ec33a93c380e4",
+          "bytes": 1535768800,
+          "format": "gguf"
+        },
+        {
+          "file": "umt5-xxl-encoder-Q5_K_M.gguf",
+          "url": "https://huggingface.co/city96/umt5-xxl-encoder-gguf/resolve/main/umt5-xxl-encoder-Q5_K_M.gguf",
+          "sha256": "eaea358bb438c5d211721a4feecc162000e3636e9cb96f51e216f1f44ebd12ce",
+          "bytes": 4145878880,
+          "format": "gguf"
+        },
+        {
+          "file": "wan_2.1_vae.safetensors",
+          "url": "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors",
+          "sha256": "2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b",
+          "bytes": 253815318,
+          "format": "safetensors"
+        }
+      ],
+      "defaults": {
+        "width": "832",
+        "height": "480",
+        "frames": "33",
+        "fps": "16",
+        "steps": "20",
+        "cfg": "6.0",
+        "flowShift": "3.0",
+        "sampler": "euler",
+        "vramGb": "5",
+        "t5xxl": "umt5-xxl-encoder-Q5_K_M.gguf",
+        "vae": "wan_2.1_vae.safetensors",
+        "negative": "色调艳丽，过曝，静态，细节模糊不清，字幕，风格，作品，画作，画面，静止，整体发灰，最差质量，低质量，JPEG压缩残留，丑陋的，残缺的，多余的手指，画得不好的手部，画得不好的脸部，畸形的，毁容的，形态畸形的肢体，手指融合，静止不动的画面，杂乱的背景，三条腿，背景人很多，倒着走",
+        "flags": "--offload-to-cpu --diffusion-fa --vae-tiling --backend te=cpu"
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "untested",
+        "cpu": "slow"
+      },
+      "license": "apache-2.0",
+      "minVramGb": 8
+    },
+    {
+      "id": "gpt-oss-20b",
+      "displayName": "gpt-oss 20B",
+      "family": "gpt-oss",
+      "task": "chat",
+      "paramsB": 21.0,
+      "description": "OpenAI's open-weight mixture of experts, 3.6B active. Nook Code's default worker on an 8 GB card: with the experts in system RAM a change takes about three minutes. Needs 24 GB of RAM beside a small card.",
+      "capabilities": [
+        "tools",
+        "worker",
+        "thinking"
+      ],
+      "artifacts": [
+        {
+          "file": "gpt-oss-20b-MXFP4.gguf",
+          "url": "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF/resolve/main/gpt-oss-20b-MXFP4.gguf",
+          "sha256": "27cd6c432c7672cb812a92f611cf3ba7bbc35928262bb1e1253ff4ee6ae35901",
+          "bytes": 12109566624
+        }
+      ],
+      "defaults": {
+        "nCtx": 8192,
+        "temperature": 0.2,
+        "minRamGb": 24,
+        "reasoningEffort": "low"
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "untested",
+        "cpu": "slow"
+      },
+      "license": "Apache-2.0",
+      "minVramGb": 8
+    },
+    {
+      "id": "qwen3-coder-30b-a3b",
+      "displayName": "Qwen3-Coder 30B-A3B",
+      "family": "qwen3-coder",
+      "task": "chat",
+      "paramsB": 30.5,
+      "description": "The coding-tuned mixture of experts, 3.3B active. The stronger engineer of the two workers but it writes long, so on an 8 GB card with the experts in RAM a task takes about five minutes. Needs 24 GB of RAM beside a small card; fast on 16 GB cards.",
+      "capabilities": [
+        "tools",
+        "worker"
+      ],
+      "artifacts": [
+        {
+          "file": "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
+          "url": "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF/resolve/main/Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf",
+          "sha256": "2841aa314d916434860cfb8990347528dcdfe5c350dbcb9d1461dbee88ff2533",
+          "bytes": 17665334432
+        }
+      ],
+      "defaults": {
+        "nCtx": 8192,
+        "temperature": 0.2,
+        "minRamGb": 24
+      },
+      "backends": {
+        "cuda": "verified",
+        "vulkan": "untested",
+        "cpu": "slow"
+      },
+      "license": "Apache-2.0",
+      "minVramGb": 8
+    }
+  ],
+  "defaultWorkerModel": "gpt-oss-20b"
+}
