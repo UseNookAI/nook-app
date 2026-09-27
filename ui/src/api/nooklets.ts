@@ -10,9 +10,12 @@ import type { Install } from "./flows";
 import { call, on } from "./ipc";
 
 /** The Nooklets there are, by id. */
-export type NookletId = "translate" | "pdf" | "convert";
+export type NookletId = "translate" | "transcribe" | "summarize" | "read-aloud" | "pdf" | "convert";
 
-/** What a request sets for a Nooklet: the translator's language, the converter's format. */
+/**
+ * What a request sets for a Nooklet: the language to translate into, the spoken language to write
+ * down, the language to summarize in or to read, or the format to convert to.
+ */
 export interface Preset {
   key: "language" | "format";
   value: string;

@@ -17,19 +17,22 @@ export function LanguagePicker({
   code,
   languages,
   allowAuto,
+  autoText = DETECT,
   onPick,
 }: {
   label: string;
   code: string | null;
   languages: Language[];
   allowAuto: boolean;
+  /** What no language is called: "Detect automatically", "Same as the document". */
+  autoText?: string;
   onPick: (code: string | null) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const pill = useRef<HTMLButtonElement>(null);
   const field = useRef<HTMLInputElement>(null);
-  const name = code == null ? DETECT : (languages.find((l) => l.code === code)?.name ?? code);
+  const name = code == null ? autoText : (languages.find((l) => l.code === code)?.name ?? code);
 
   useEffect(() => {
     if (!open) return;
@@ -64,7 +67,7 @@ export function LanguagePicker({
         <div className="fl-lang__list">
           {allowAuto && !wanted && (
             <StyledMenuItem
-              text={DETECT}
+              text={autoText}
               icon="check"
               // Every row has the tick's room, so the names line up; only the chosen one shows it.
               tint={code == null ? undefined : "transparent"}

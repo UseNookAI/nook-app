@@ -29,9 +29,11 @@ use tokio_util::sync::CancellationToken;
 use super::audio::{self, CHUNK_SECONDS};
 use super::dub::{self, Layout};
 use super::languages;
+use super::reader::Reader;
 use super::reference;
 use super::runtime::{Facts, FlowRuntime};
 use super::subtitles::{self, Segment};
+use super::summarize::Length;
 use super::translator::{self, Chat};
 use super::voice_engine::{AudioEngine, Line, Request, Speaker};
 use super::voices::{Choice, Voice, Voices};
@@ -42,6 +44,12 @@ use crate::runtime::{Downloader, EngineComponent, Outcome, Progress, RuntimeMana
 
 /// The flow that translates speech.
 pub const TRANSLATE_AUDIO: &str = "translate-audio";
+/// The Nooklet that writes down a recording.
+pub const TRANSCRIBE: &str = "transcribe";
+/// The Nooklet that summarizes a document.
+pub const SUMMARIZE: &str = "summarize";
+/// The Nooklet that reads a document aloud.
+pub const READ_ALOUD: &str = "read-aloud";
 /// How long closing the app waits for a run in progress to stop.
 const SHUTDOWN_WAIT: Duration = Duration::from_secs(15);
 
@@ -61,8 +69,12 @@ pub enum Status {
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stage {
     Preparing,
+    /// Reading a document's words (Summarize, Read aloud).
+    Reading,
     Listening,
     Translating,
+    /// The chat model writing a summary or notes.
+    Summarizing,
     Speaking,
     Assembling,
     Saving,
@@ -77,6 +89,8 @@ pub enum Source {
     File,
     /// What the person said into the microphone; the recording is in the run's folder.
     Microphone,
+    /// Text the person pasted; it is kept in the run's folder as `text.txt`.
+    Text,
 }
 
 /// One run of a flow (`FlowService.Run`). The service replaces it as it moves on. The UI's `Run`
@@ -93,6 +107,17 @@ pub enum Source {
 /// - `detected_language`: what Whisper heard, as a code (or its name when Nook does not list it)
 /// - `segments`: what was said, with the translation once made
 /// - `audio`: the translated track, once made; `video`: the video with it, for a video input
+///
+/// The Nooklets on the same queue use these too, and their own:
+///
+/// - `flow`: [`TRANSLATE_AUDIO`], [`TRANSCRIBE`], [`SUMMARIZE`] or [`READ_ALOUD`]
+/// - Transcribe: `source_language` the spoken language (None: Whisper tells), `notes` whether
+///   the chat model writes notes (in `summary`), `length` theirs; `target_language` is empty
+/// - Summarize: `target_language` the summary's language (empty: the document's), `length`,
+///   `focus`, and `summary`
+/// - Read aloud: `target_language` the text's language, `female` a woman's voice, `audio` the
+///   track, `segments` each line with where it is heard in the track
+/// - `words`: how many words were read or heard; `files` every file the run wrote
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Run {
@@ -123,6 +148,32 @@ pub struct Run {
     pub created_at: DateTime<Utc>,
     #[serde(with = "chrono::serde::ts_milliseconds_option")]
     pub started_at: Option<DateTime<Utc>>,
+    pub notes: bool,
+    pub length: Length,
+    pub focus: Option<String>,
+    pub female: bool,
+    pub summary: Option<String>,
+    pub words: u32,
+    pub files: Vec<String>,
+}
+
+/// What the person asks of a Nooklet on the flows' queue (Transcribe, Summarize, Read aloud).
+///
+/// - `flow`: [`TRANSCRIBE`], [`SUMMARIZE`] or [`READ_ALOUD`]
+/// - `language`: Transcribe, the spoken language (None: Whisper tells); Summarize, the language
+///   to write in (None: the document's); Read aloud, the text's language
+/// - `notes`: Transcribe, also write notes with the chat model
+/// - `length`, `focus`: the summary's or the notes' length, and what to look at most
+/// - `female`: Read aloud, a woman's voice (else a man's) where the voice has both
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Order {
+    pub flow: String,
+    pub language: Option<String>,
+    pub notes: bool,
+    pub length: Length,
+    pub focus: Option<String>,
+    pub female: bool,
 }
 
 impl Default for Run {
@@ -153,6 +204,13 @@ impl Default for Run {
             error: None,
             created_at: DateTime::<Utc>::UNIX_EPOCH,
             started_at: None,
+            notes: false,
+            length: Length::Short,
+            focus: None,
+            female: true,
+            summary: None,
+            words: 0,
+            files: Vec::new(),
         }
     }
 }
@@ -179,13 +237,24 @@ impl Run {
         } else {
             0.0
         };
-        match stage {
-            Stage::Preparing => 0.03,
-            Stage::Listening => 0.05 + 0.25 * within,
-            Stage::Translating => 0.30 + 0.25 * within,
-            Stage::Speaking => 0.55 + 0.40 * within,
-            Stage::Assembling => 0.96,
-            Stage::Saving => 0.99,
+        match (self.flow.as_str(), stage) {
+            // Written down, then the notes when asked for.
+            (TRANSCRIBE, Stage::Listening) if self.notes => 0.05 + 0.65 * within,
+            (TRANSCRIBE, Stage::Listening) => 0.05 + 0.90 * within,
+            (TRANSCRIBE, Stage::Summarizing) => 0.70 + 0.27 * within,
+            (SUMMARIZE, Stage::Reading) => 0.05,
+            (SUMMARIZE, Stage::Summarizing) => 0.10 + 0.87 * within,
+            (READ_ALOUD, Stage::Reading) => 0.03,
+            (READ_ALOUD, Stage::Speaking) => 0.06 + 0.86 * within,
+            (READ_ALOUD, Stage::Assembling) => 0.94,
+            (_, Stage::Preparing) => 0.03,
+            (_, Stage::Reading) => 0.05,
+            (_, Stage::Listening) => 0.05 + 0.25 * within,
+            (_, Stage::Translating) => 0.30 + 0.25 * within,
+            (_, Stage::Summarizing) => 0.30 + 0.60 * within,
+            (_, Stage::Speaking) => 0.55 + 0.40 * within,
+            (_, Stage::Assembling) => 0.96,
+            (_, Stage::Saving) => 0.99,
         }
     }
 
@@ -229,11 +298,13 @@ fn elapsed_since(started: Option<DateTime<Utc>>) -> u64 {
         .unwrap_or(0)
 }
 
-/// What a plan is for: a file, the microphone, or nothing chosen yet.
+/// What a plan is for: a file, the microphone, text pasted in (Summarize, Read aloud), or nothing
+/// chosen yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlanInput {
     File(PathBuf),
     Microphone,
+    Text(String),
     Nothing,
 }
 
@@ -254,6 +325,8 @@ enum NeedKind {
     Ffmpeg,
     VoiceEngine,
     Voice(String),
+    /// An engine the document reader needs (Pandoc, PDFium, LibreOffice).
+    Component(EngineComponent),
 }
 
 /// What a run with these inputs would do (`FlowService.Plan`): which voice speaks, said in a
@@ -305,6 +378,8 @@ pub struct FlowService {
     receiver: Mutex<Option<mpsc::UnboundedReceiver<String>>>,
     worker: Mutex<Option<JoinHandle<()>>>,
     stopping: CancellationToken,
+    /// What reads documents (the converter), given once it is built.
+    reader: std::sync::OnceLock<Arc<dyn Reader>>,
     me: Weak<FlowService>,
 }
 
@@ -350,8 +425,15 @@ impl FlowService {
             receiver: Mutex::new(Some(receiver)),
             worker: Mutex::new(None),
             stopping: CancellationToken::new(),
+            reader: std::sync::OnceLock::new(),
             me: me.clone(),
         })
+    }
+
+    /// Gives the service what reads documents, for Summarize and Read aloud (the converter,
+    /// which is built after it). Only the first call counts.
+    pub fn set_reader(&self, reader: Arc<dyn Reader>) {
+        let _ = self.reader.set(reader);
     }
 
     fn changed(&self, id: &str) {
@@ -425,7 +507,9 @@ impl FlowService {
         keep_voice: bool,
     ) -> (Plan, Option<Choice>, Vec<NeedKind>) {
         let mut problem = match input {
-            PlanInput::Nothing => Some("Choose an audio or video file.".to_string()),
+            PlanInput::Nothing | PlanInput::Text(_) => {
+                Some("Choose an audio or video file.".to_string())
+            }
             PlanInput::File(p) if !p.is_file() => {
                 Some(format!("{} is not there any more.", audio::display_name(p)))
             }
@@ -443,19 +527,7 @@ impl FlowService {
             .flatten();
 
         let mut needs = Vec::new();
-        match (&facts.speech_model, &facts.speech_download) {
-            (None, Some((id, bytes))) => needs.push(Need {
-                what: "the speech model".into(),
-                bytes: *bytes,
-                kind: NeedKind::SpeechModel(id.clone()),
-            }),
-            (Some(_), _) if !facts.speech_engine_installed => needs.push(Need {
-                what: "the speech engine".into(),
-                bytes: facts.speech_engine_bytes,
-                kind: NeedKind::SpeechEngine,
-            }),
-            _ => {}
-        }
+        speech_needs(facts, &mut needs);
         if let PlanInput::File(p) = input {
             if facts.ffmpeg.is_none() && p.is_file() {
                 if audio::is_video(p) {
@@ -549,6 +621,16 @@ impl FlowService {
         }
         let facts = self.runtime.facts();
         let (plan, choice, kinds) = self.plan_with(&facts, input, target, keep_voice);
+        self.begin_install(plan, choice.map(|c| c.voice), kinds)
+    }
+
+    /// Starts downloading what `plan` needs, in the background.
+    fn begin_install(
+        &self,
+        plan: Plan,
+        voice: Option<Voice>,
+        kinds: Vec<NeedKind>,
+    ) -> Result<(), String> {
         if plan.needs.is_empty() {
             return Ok(());
         }
@@ -564,7 +646,6 @@ impl FlowService {
         });
         self.install_changed();
         let me = self.me.clone();
-        let voice = choice.map(|c| c.voice);
         handle.spawn(async move {
             let Some(me) = me.upgrade() else { return };
             let outcome = me.run_install(&plan, &kinds, voice.as_ref(), &cancel).await;
@@ -647,6 +728,9 @@ impl FlowService {
                     self.runtime
                         .install_component(EngineComponent::Audio, progress, cancel)
                         .await?
+                }
+                NeedKind::Component(c) => {
+                    self.runtime.install_component(*c, progress, cancel).await?
                 }
                 NeedKind::Voice(id) => {
                     let v = voice
@@ -760,6 +844,9 @@ impl FlowService {
         let old = self
             .run(id)
             .ok_or_else(|| "That run is gone.".to_string())?;
+        if old.flow != TRANSLATE_AUDIO {
+            return self.again_nooklet(&old);
+        }
         match old.source {
             Source::File => self.submit_file(
                 Path::new(&old.input),
@@ -789,6 +876,7 @@ impl FlowService {
                 )?;
                 self.queue_run(run)
             }
+            Source::Text => Err("Only a recording can be translated.".into()),
         }
     }
 
@@ -959,7 +1047,7 @@ impl FlowService {
         // Stop ends the run at once: whatever it waits on (a batch from the chat model, which can
         // take minutes, Whisper, the voice engine, killed with it) is dropped, not waited for.
         let result = tokio::select! {
-            r = self.translate(&running, &work, &cancel) => r,
+            r = self.perform(&running, &work, &cancel) => r,
             _ = cancel.cancelled() => Err(Stopped.into()),
         };
         let after = match result {
@@ -1007,63 +1095,27 @@ impl FlowService {
         self.changed(id);
     }
 
+    /// The run's work, by its flow.
+    async fn perform(&self, run: &Run, work: &Path, cancel: &CancellationToken) -> Result<Run> {
+        match run.flow.as_str() {
+            TRANSCRIBE => self.transcribe(run, work, cancel).await,
+            SUMMARIZE => self.summarize(run, work, cancel).await,
+            READ_ALOUD => self.read_aloud(run, work, cancel).await,
+            _ => self.translate(run, work, cancel).await,
+        }
+    }
+
     async fn translate(&self, run: &Run, work: &Path, cancel: &CancellationToken) -> Result<Run> {
         let id = run.id.as_str();
         let facts = self.runtime.facts();
         let input = PathBuf::from(&run.input);
         let target = run.target_language.clone();
 
-        // Prepare.
-        self.stage(id, Stage::Preparing, 0, 0);
-        tokio::fs::create_dir_all(work)
-            .await
-            .with_context(|| format!("Could not create {}", work.display()))?;
-        let wav = work.join("audio.wav");
-        let duration = {
-            let (input, wav, ffmpeg, cancel) = (
-                input.clone(),
-                wav.clone(),
-                facts.ffmpeg.clone(),
-                cancel.clone(),
-            );
-            blocking(move || audio::to_speech_wav(&input, &wav, ffmpeg.as_deref(), &cancel)).await?
-        };
-        stop_if(cancel)?;
-        let parts = {
-            let (wav, dir) = (wav.clone(), work.join("parts"));
-            blocking(move || audio::split(&wav, &dir, CHUNK_SECONDS)).await?
-        };
-
-        // Listen.
-        let speech_model = facts
-            .speech_model
-            .clone()
-            .ok_or_else(|| anyhow!("No speech model is downloaded."))?;
-        let mut language = run.source_language.clone();
-        let mut detected: Option<String> = None;
-        let mut heard: Vec<Segment> = Vec::new();
-        for (i, part) in parts.iter().enumerate() {
-            stop_if(cancel)?;
-            self.stage(id, Stage::Listening, i, parts.len());
-            let reply = self
-                .runtime
-                .transcribe(&part.file, &speech_model, language.as_deref())
-                .await?;
-            if detected.is_none() {
-                detected = languages::code_of(reply.get("language").and_then(Value::as_str));
-                // The parts after the first keep to the language the first one was heard in.
-                if language.is_none() {
-                    language = detected.clone().filter(|d| languages::by_code(d).is_some());
-                }
-            }
-            heard.extend(segments_of(&reply, part.offset_seconds));
-        }
-        if heard.is_empty() {
-            bail!(match run.source {
-                Source::Microphone => "Nook heard no speech in the recording.".to_string(),
-                Source::File => format!("Nook heard no speech in {}.", run.input_name),
-            });
-        }
+        // Prepare, and listen.
+        let (wav, duration) = self
+            .prepare_audio(run, &input, work, &facts, cancel)
+            .await?;
+        let (heard, detected) = self.listen(run, &wav, work, &facts, cancel).await?;
         let from = detected.clone().or_else(|| run.source_language.clone());
         {
             let heard = heard.clone();
@@ -1151,7 +1203,7 @@ impl FlowService {
                 stop_if(cancel)?;
                 self.stage(id, Stage::Assembling, 0, 0);
                 let layout = match run.source {
-                    Source::Microphone => Layout::Compact,
+                    Source::Microphone | Source::Text => Layout::Compact,
                     Source::File => Layout::Timeline,
                 };
                 let out = folder.join(format!("{base}.{target}.wav"));
@@ -1206,6 +1258,80 @@ impl FlowService {
             blocking(move || write_outputs(&done, &folder, &base)).await?;
         }
         Ok(done)
+    }
+
+    /// The run's sound as 16 kHz WAV in `work`, and how long it is.
+    async fn prepare_audio(
+        &self,
+        run: &Run,
+        input: &Path,
+        work: &Path,
+        facts: &Facts,
+        cancel: &CancellationToken,
+    ) -> Result<(PathBuf, f64)> {
+        self.stage(&run.id, Stage::Preparing, 0, 0);
+        tokio::fs::create_dir_all(work)
+            .await
+            .with_context(|| format!("Could not create {}", work.display()))?;
+        let wav = work.join("audio.wav");
+        let duration = {
+            let (input, wav, ffmpeg, cancel) = (
+                input.to_path_buf(),
+                wav.clone(),
+                facts.ffmpeg.clone(),
+                cancel.clone(),
+            );
+            blocking(move || audio::to_speech_wav(&input, &wav, ffmpeg.as_deref(), &cancel)).await?
+        };
+        stop_if(cancel)?;
+        Ok((wav, duration))
+    }
+
+    /// What is said in `wav`, in parts: the lines with their times, and the language Whisper
+    /// heard (a code, or its name when Nook does not list it). Fails when no speech was heard.
+    async fn listen(
+        &self,
+        run: &Run,
+        wav: &Path,
+        work: &Path,
+        facts: &Facts,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<Segment>, Option<String>)> {
+        let id = run.id.as_str();
+        let parts = {
+            let (wav, dir) = (wav.to_path_buf(), work.join("parts"));
+            blocking(move || audio::split(&wav, &dir, CHUNK_SECONDS)).await?
+        };
+        let speech_model = facts
+            .speech_model
+            .clone()
+            .ok_or_else(|| anyhow!("No speech model is downloaded."))?;
+        let mut language = run.source_language.clone();
+        let mut detected: Option<String> = None;
+        let mut heard: Vec<Segment> = Vec::new();
+        for (i, part) in parts.iter().enumerate() {
+            stop_if(cancel)?;
+            self.stage(id, Stage::Listening, i, parts.len());
+            let reply = self
+                .runtime
+                .transcribe(&part.file, &speech_model, language.as_deref())
+                .await?;
+            if detected.is_none() {
+                detected = languages::code_of(reply.get("language").and_then(Value::as_str));
+                // The parts after the first keep to the language the first one was heard in.
+                if language.is_none() {
+                    language = detected.clone().filter(|d| languages::by_code(d).is_some());
+                }
+            }
+            heard.extend(segments_of(&reply, part.offset_seconds));
+        }
+        if heard.is_empty() {
+            bail!(match run.source {
+                Source::Microphone => "Nook heard no speech in the recording.".to_string(),
+                _ => format!("Nook heard no speech in {}.", run.input_name),
+            });
+        }
+        Ok((heard, detected))
     }
 
     fn can_speak(&self, facts: &Facts, voice: &Voice) -> bool {
@@ -1406,6 +1532,23 @@ async fn work(
     }
 }
 
+/// What listening still needs: the speech model (with its engine), or the engine alone.
+fn speech_needs(facts: &Facts, needs: &mut Vec<Need>) {
+    match (&facts.speech_model, &facts.speech_download) {
+        (None, Some((id, bytes))) => needs.push(Need {
+            what: "the speech model".into(),
+            bytes: *bytes,
+            kind: NeedKind::SpeechModel(id.clone()),
+        }),
+        (Some(_), _) if !facts.speech_engine_installed => needs.push(Need {
+            what: "the speech engine".into(),
+            bytes: facts.speech_engine_bytes,
+            kind: NeedKind::SpeechEngine,
+        }),
+        _ => {}
+    }
+}
+
 fn stop_if(cancel: &CancellationToken) -> Result<()> {
     if cancel.is_cancelled() {
         Err(Stopped.into())
@@ -1445,8 +1588,10 @@ fn segments_of(reply: &Value, offset: f64) -> Vec<Segment> {
 }
 
 fn base_name(run: &Run) -> String {
-    if run.source == Source::Microphone {
-        return "recording".into();
+    match run.source {
+        Source::Microphone => return "recording".into(),
+        Source::Text => return "text".into(),
+        Source::File => {}
     }
     let name = run.input_name.as_str();
     match name.rfind('.') {
@@ -1543,6 +1688,7 @@ fn load_finished(dir: &Path) -> HashMap<String, Run> {
                 if !exists(&run.video) {
                     run.video = None;
                 }
+                run.files.retain(|f| Path::new(f).is_file());
                 runs.insert(run.id.clone(), run);
             }
             Err(e) => tracing::warn!(
@@ -1575,6 +1721,14 @@ fn base36(mut n: u64) -> String {
     String::from_utf8(out).unwrap_or_default()
 }
 
+#[path = "service_nooklets.rs"]
+mod nooklets;
+pub use nooklets::{Peek, PARAGRAPH_PAUSE, WORDS_A_MINUTE};
+
 #[cfg(test)]
 #[path = "service_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "service_nooklets_tests.rs"]
+mod nooklets_tests;

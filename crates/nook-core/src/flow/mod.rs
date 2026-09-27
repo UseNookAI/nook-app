@@ -20,24 +20,42 @@
 //! - [`FlowRuntime`] (`runtime.rs`): the runtime as a run sees it, implemented by
 //!   [`RuntimeManager`](crate::runtime::RuntimeManager) and by a scripted fake in the tests.
 //!
+//! Three more Nooklets run through the same queue, so no two of them want the card at once
+//! (`service_nooklets.rs`, each queued with an [`Order`]):
+//!
+//! - *Transcribe*: a recording (a file, or the microphone) written down by Whisper, as text, a
+//!   timed transcript and subtitles, with notes by the chat model when asked ([`summarize`]).
+//! - *Summarize*: a document (read through the converter's engines, [`reader`]) or pasted text,
+//!   summarized by the chat model in parts when it is long.
+//! - *Read aloud*: a document or pasted text spoken by a standard voice line after line
+//!   ([`aloud`]), as one track.
+//!
 //! Events on [`topic::FLOWS`](crate::events::topic::FLOWS): `{"run": Run}` when a run is added or
 //! moves on, `{"removed": id}` when one is deleted, `{"install": Install | null}` while the
 //! downloads run. The shapes are those of `ui/src/api/flows.ts`.
 
+pub mod aloud;
 pub mod audio;
 pub mod dub;
 pub mod languages;
+pub mod reader;
 pub mod reference;
 pub mod runtime;
 pub mod service;
 pub mod subtitles;
+pub mod summarize;
 pub mod translator;
 pub mod voice_engine;
 pub mod voices;
 
+pub use reader::{Reader, ReaderNeed};
 pub use runtime::{Facts, FlowRuntime};
-pub use service::{FlowService, Install, Need, Plan, PlanInput, Run, Source, Stage, Status};
+pub use service::{
+    FlowService, Install, Need, Order, Peek, Plan, PlanInput, Run, Source, Stage, Status,
+    READ_ALOUD, SUMMARIZE, TRANSCRIBE, TRANSLATE_AUDIO,
+};
 pub use subtitles::Segment;
+pub use summarize::Length;
 
 /// The error a stopped run ends with (the original's `CancellationException`); callers tell it
 /// from a failure with `err.is::<Stopped>()`.

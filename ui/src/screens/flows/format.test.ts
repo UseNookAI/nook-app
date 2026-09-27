@@ -38,6 +38,13 @@ function run(over: Partial<Run> = {}): Run {
     error: null,
     createdAt: 0,
     startedAt: null,
+    notes: false,
+    length: "short",
+    focus: null,
+    female: true,
+    summary: null,
+    words: 0,
+    files: [],
     ...over,
   };
 }

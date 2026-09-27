@@ -126,6 +126,8 @@ impl Nook {
         let pdf_setup = PdfInstaller::new(runtime.clone());
         updater.register_busy("PdfInstaller", pdf_setup.clone());
         let convert = ConvertService::new(runtime.clone(), pdf.clone(), home.clone());
+        // Summarize and Read aloud read documents through the converter's engines.
+        flows.set_reader(convert.clone());
         updater.register_busy("ConvertService", convert.clone());
         let nooklets = Finder::new(runtime.clone(), home.clone());
         updater.register_busy("Finder", nooklets.clone());

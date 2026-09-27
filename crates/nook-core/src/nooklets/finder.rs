@@ -682,9 +682,39 @@ mod tests {
             ("dub this video in spanish", Some("translate")),
             ("I want to hear this podcast in French", Some("translate")),
             ("übersetze meine Rede ins Englische", Some("translate")),
+            ("transcribe this meeting recording", Some("transcribe")),
+            ("turn my voice memo into text", Some("transcribe")),
+            (
+                "I need notes from yesterday's call recording",
+                Some("transcribe"),
+            ),
+            (
+                "write down everything said in this interview",
+                Some("transcribe"),
+            ),
+            ("ses kaydını yazıya dök", Some("transcribe")),
+            ("summarize this PDF for me", Some("summarize")),
+            ("what are the main points of this report", Some("summarize")),
+            (
+                "is there anything bad hidden in this contract",
+                Some("summarize"),
+            ),
+            ("bu raporu özetle", Some("summarize")),
+            ("fasse diesen Artikel zusammen", Some("summarize")),
+            ("read this article aloud", Some("read-aloud")),
+            ("turn my novel into an audiobook", Some("read-aloud")),
+            (
+                "I'd rather listen to this document than read it",
+                Some("read-aloud"),
+            ),
+            ("bu metni sesli oku", Some("read-aloud")),
+            ("lies mir diesen Brief vor", Some("read-aloud")),
             ("book a flight to Paris", None),
             ("write me a poem", None),
+            ("tell me a story", None),
+            ("write an email to my boss", None),
             ("what's the weather", None),
+            ("play some music", None),
             ("generate an image of a cat", None),
         ];
         let mut wrong = Vec::new();
@@ -693,10 +723,12 @@ mod tests {
             let found = finder.find(q).await;
             let best = &found.hits[0];
             println!(
-                "{:>4} ms {:.3} {:9} sure={} matched={} {:?} | {q}",
+                "{:>4} ms {:.3} {:10} (then {:.3} {:10}) sure={} matched={} {:?} | {q}",
                 started.elapsed().as_millis(),
                 best.score,
                 best.id,
+                found.hits[1].score,
+                found.hits[1].id,
                 found.sure,
                 found.matched,
                 best.preset.as_ref().map(|p| &p.label)

@@ -30,19 +30,32 @@ import { Scout, type Mood } from "./Scout";
 import "../code/code.css";
 
 /** The Nooklets there are, for the icons and the "or pick one" row. */
-export const NOOKLET_ICONS: Record<NookletId, string> = { translate: "translate", pdf: "file-edit", convert: "file-convert" };
+export const NOOKLET_ICONS: Record<NookletId, string> = {
+  translate: "translate",
+  transcribe: "transcribe",
+  summarize: "summarize",
+  "read-aloud": "read-aloud",
+  pdf: "file-edit",
+  convert: "file-convert",
+};
 const ALL: { id: NookletId; title: string }[] = [
   { id: "translate", title: "Translate speech" },
+  { id: "transcribe", title: "Transcribe a recording" },
+  { id: "summarize", title: "Summarize a document" },
+  { id: "read-aloud", title: "Read it aloud" },
   { id: "pdf", title: "Edit a PDF" },
   { id: "convert", title: "Convert documents" },
 ];
 
 const EXAMPLES = [
   "Turn my Word file into a PDF",
+  "Write down this meeting recording",
   "Change the date on this scanned form",
+  "What does this contract say?",
   "Translate what I say into Spanish",
+  "Read this chapter aloud to me",
   "Put these photos into one PDF",
-  "Make a CSV out of this Excel sheet",
+  "Notes from yesterday's call",
   "Dub this video in German",
 ];
 
@@ -245,7 +258,7 @@ function HitCard({ hit, best = false, onOpen }: { hit: Hit; best?: boolean; onOp
       <span className="nl-hit__text">
         <span className="nl-hit__title">
           <span className="subtitle1">{hit.title}</span>
-          {hit.preset && <span className="nk-chip nk-chip--accent">{hit.preset.key === "language" ? `into ${hit.preset.label}` : `to ${hit.preset.label}`}</span>}
+          {hit.preset && <span className="nk-chip nk-chip--accent">{hit.preset.label}</span>}
         </span>
         <span className="caption text-secondary">{hit.blurb}</span>
       </span>

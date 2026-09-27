@@ -4,11 +4,14 @@
  * worker does; a finished run's track is a real WAV made here (a voice-like hum, one burst per
  * line), so the page's own player plays it.
  *
+ * The Nooklets on the same queue (Transcribe, Summarize, Read aloud) move through their own
+ * stages here too, and finish with a transcript and notes, a summary, or a reading.
+ *
  * States to look at: `?flowsMock=fresh` (nothing downloaded yet), `no-model` (no chat model),
  * `empty` (no runs), comma-separated; or `nookFlowsMock.fresh()`, `nookFlowsMock.clear()`,
  * `nookFlowsMock.failNext()` in the console.
  */
-import type { Install, Language, Need, Plan, Run, Segment, Stage } from "../flows";
+import type { Install, Language, Need, Order, Peek, Plan, Run, Segment, Stage } from "../flows";
 import { mock, mockEmit } from "../ipc";
 
 /** Heard by Whisper but spoken by none of the voices. */
@@ -58,7 +61,11 @@ const installed = {
   ffmpeg: false,
   voices: new Set(params.includes("fresh") ? [] : ["qwen3", "supertonic"]),
   model: !params.includes("no-model"),
+  pandoc: false,
+  pdfium: !params.includes("fresh"),
 };
+const PANDOC_BYTES = 41_761_100;
+const PDFIUM_BYTES = 3_733_154;
 let install: Install | null = null;
 let installTimer: number | undefined;
 let runs: Run[] = [];
@@ -266,6 +273,13 @@ function blank(over: Partial<Run> & Pick<Run, "input" | "inputName" | "source" |
     error: null,
     createdAt: Date.now(),
     startedAt: null,
+    notes: false,
+    length: "short",
+    focus: null,
+    female: true,
+    summary: null,
+    words: 0,
+    files: [],
     ...over,
   };
 }
@@ -315,6 +329,10 @@ function tick() {
     return;
   }
   const inStage = now - stageAt;
+  if (r.flow !== "translate-audio") {
+    tickNooklet(r, inStage);
+    return;
+  }
   const count = r.source === "MICROPHONE" ? 2 : 8;
   switch (r.stage) {
     case "PREPARING":
@@ -360,6 +378,271 @@ function tick() {
       break;
     case "SAVING":
       if (inStage > 300) finish(r);
+      break;
+  }
+}
+
+// ---------------------------------------------------------------- the Nooklets on the queue
+
+const NOTES = `# Planning the local AI launch
+
+The team went through the launch plan for running AI on people's own computers, and what each part needs.
+
+## Key points
+- Everything runs on the machine; nothing goes to the cloud.
+- Listening, translating and speaking are done in turn, one run at a time.
+- It works for recordings, podcasts and videos.
+
+## Decisions
+- Launch with the speech translator first.
+
+## To do
+- Anna: test it on a slow laptop, by Friday.
+- Sam: write the page that explains the downloads.
+
+## Open questions
+- Which voices to offer first for Turkish?`;
+
+const SUMMARY = `# Tenancy agreement for Flat 2, 14 Harbour Road
+
+A one-year lease between Northwind Properties and the tenant, starting 1 October 2026, for a furnished two-room flat.
+
+## Key points
+- Rent is **€900 a month**, due on the first of each month by bank transfer.
+- A deposit of €1,800 is held and returned within 30 days of the end, less repairs.
+- Either side may end the lease with **three months' notice** after the first six months.
+- Pets need the landlord's written consent.
+- The tenant pays electricity, internet and council tax; water is included.
+
+## Worth checking
+- A late fee of **€50** applies after 5 days, and interest after 30.
+- The rent may rise by up to 4% at renewal.
+- The tenant must repaint the walls at the end if they were changed.`;
+
+const READING = [
+  "Chapter one.",
+  "It was a bright cold day in April, and the clocks were striking thirteen.",
+  "The hallway smelt of boiled cabbage and old rag mats.",
+  "At one end of it a coloured poster, too large for indoor display, had been tacked to the wall.",
+  "It depicted simply an enormous face, more than a metre wide.",
+  "The flat was seven flights up, and he went slowly, resting several times on the way.",
+];
+
+/** Lines one after the other, as the reading's track lays them out. */
+function readingLines(lines: string[]): Segment[] {
+  let t = 0.3;
+  return lines.map((text) => {
+    const len = 0.8 + text.length / 16;
+    const s = { start: t, end: t + len, text, translation: null };
+    t += len + 0.22;
+    return s;
+  });
+}
+
+const PLAIN = ["txt", "md", "markdown", "text"];
+const PANDOC = ["docx", "odt", "rtf", "html", "htm", "epub", "pptx", "doc"];
+
+function documentProblem(input: string | null, text: string | null, needs: Need[]): string | null {
+  if (text != null && text.trim() !== "") return null;
+  if (!input) return "Choose a document, or paste text.";
+  const ext = extension(input);
+  if (["png", "jpg", "jpeg", "gif", "webp", "bmp"].includes(ext)) return "This is a picture. Choose a document, or a PDF of it.";
+  if (PLAIN.includes(ext) || ["xlsx", "csv"].includes(ext)) return null;
+  if (ext === "pdf") {
+    if (!installed.pdfium) needs.push({ what: "the PDF engine", bytes: PDFIUM_BYTES });
+    return null;
+  }
+  if (PANDOC.includes(ext)) {
+    if (!installed.pandoc) needs.push({ what: "the document engine (Pandoc)", bytes: PANDOC_BYTES });
+    return null;
+  }
+  return `Nook does not read .${ext} files.`;
+}
+
+function planFor(input: string | null, microphone: boolean, text: string | null, order: Order): Plan {
+  const needs: Need[] = [];
+  let problem: string | null = null;
+  let spokenWith = "";
+  let voiceName: string | null = null;
+  let usesModel = false;
+  const noModel = "No chat model is installed. Download one in Settings > Models, and it writes this.";
+  if (order.flow === "transcribe") {
+    problem = !microphone && !input ? "Choose a recording, or record one." : null;
+    if (!problem && order.notes && !installed.model) problem = noModel;
+    if (!installed.speech) needs.push({ what: "the speech model", bytes: SPEECH_BYTES + WHISPER_BYTES });
+    if (!microphone && input && !installed.ffmpeg && !readable(input))
+      needs.push({ what: `FFmpeg, to read .${extension(input)} files`, bytes: FFMPEG_BYTES });
+    usesModel = order.notes;
+    spokenWith = order.notes
+      ? `Whisper writes it down, and ${MODEL.name} writes the notes.`
+      : "Whisper writes it down, with the time of every line.";
+  } else if (order.flow === "summarize") {
+    problem = documentProblem(input, text, needs);
+    if (!problem && !installed.model) problem = noModel;
+    usesModel = true;
+    spokenWith = `${installed.model ? MODEL.name : "The chat model"} writes the summary.`;
+  } else {
+    problem = documentProblem(input, text, needs);
+    const choice = order.language ? pick(order.language, false) : null;
+    if (!order.language) problem ??= "Choose the language the text is in.";
+    else if (!choice || choice.cloned) problem ??= `Nook has no voice that reads ${name(order.language)} yet.`;
+    else {
+      if (!installed.engine) needs.push({ what: "the voice engine", bytes: ENGINE_BYTES });
+      if (!installed.voices.has(choice.voice.id)) needs.push({ what: `the ${choice.voice.name} voice`, bytes: choice.voice.bytes });
+      voiceName = choice.voice.name;
+      spokenWith = choice.voice.designs
+        ? `Read by ${choice.voice.name}.`
+        : `Read by ${choice.voice.name} in a ${order.female ? "woman's" : "man's"} voice.`;
+    }
+  }
+  const totalBytes = needs.reduce((a, n) => a + n.bytes, 0);
+  return {
+    voiceName,
+    cloned: false,
+    spokenWith,
+    noVoice: order.flow === "read-aloud" && voiceName == null,
+    needs,
+    totalBytes,
+    problem,
+    ready: problem == null && needs.length === 0,
+    modelId: usesModel && installed.model ? MODEL.id : null,
+    modelName: usesModel && installed.model ? MODEL.name : null,
+  };
+}
+
+function checkFor(input: string | null, microphone: boolean, text: string | null, order: Order) {
+  const p = planFor(input, microphone, text, order);
+  if (p.problem) throw new Error(p.problem);
+  if (p.needs.length) throw new Error(`This needs a download first: ${p.needs[0].what}.`);
+}
+
+function firstWords(text: string): string {
+  const words = text.trim().split(/\s+/);
+  const joined = words.slice(0, 8).join(" ");
+  return joined ? (words.length > 8 ? `${joined}…` : joined) : "Pasted text";
+}
+
+function guessLanguage(text: string): string | null {
+  const t = ` ${text.toLowerCase()} `;
+  const has = (ws: string[]) => ws.filter((w) => t.includes(` ${w} `)).length;
+  const scores: [string, number][] = [
+    ["de", has(["der", "die", "und", "ist", "nicht", "das"])],
+    ["tr", has(["ve", "bir", "bu", "için", "ile", "çok"])],
+    ["fr", has(["le", "la", "et", "est", "les", "des"])],
+    ["es", has(["el", "la", "y", "es", "los", "que"])],
+    ["en", has(["the", "and", "is", "of", "to", "a"])],
+  ];
+  const best = scores.sort((a, b) => b[1] - a[1])[0];
+  return best[1] > 0 ? best[0] : null;
+}
+
+function orderRun(order: Order, over: Partial<Run> & Pick<Run, "input" | "inputName" | "source">): Run {
+  return blank({
+    flow: order.flow,
+    sourceLanguage: order.flow === "transcribe" ? order.language : null,
+    targetLanguage: order.flow === "transcribe" ? "" : (order.language ?? ""),
+    modelId: order.flow === "summarize" || order.notes ? MODEL.id : null,
+    keepVoice: false,
+    notes: order.flow === "transcribe" && order.notes,
+    length: order.length,
+    focus: order.focus?.trim() || null,
+    female: order.female,
+    ...over,
+  });
+}
+
+function tickNooklet(r: Run, inStage: number) {
+  const folder = `${FOLDER}\\${r.id}`;
+  const base = r.source === "MICROPHONE" ? "recording" : r.source === "TEXT" ? "text" : r.inputName.replace(/\.[^.]+$/, "");
+  const done = (over: Partial<Run>) =>
+    put({ ...r, status: "DONE", stage: null, done: 0, total: 0, elapsedMs: Date.now() - (r.startedAt ?? Date.now()), ...over });
+  if (r.flow === "transcribe") {
+    switch (r.stage) {
+      case "PREPARING":
+        if (inStage > 500) move(r, "LISTENING", 0, r.source === "MICROPHONE" ? 1 : 3);
+        break;
+      case "LISTENING":
+        if (inStage > 800 * r.total) {
+          if (failNext) {
+            failNext = false;
+            put({ ...r, status: "FAILED", stage: null, error: "Nook heard no speech in the recording." });
+          } else if (r.notes) move(r, "SUMMARIZING", 0, 1);
+          else move(r, "SAVING", 0, 0);
+        } else if (Math.floor(inStage / 800) !== r.done) put({ ...r, done: Math.min(r.total - 1, Math.floor(inStage / 800)) });
+        break;
+      case "SUMMARIZING":
+        if (inStage > 1400) move(r, "SAVING", 0, 0);
+        break;
+      case "SAVING":
+        if (inStage > 300) {
+          const heard = segments(r.source === "MICROPHONE" ? 3 : 8, "en", false);
+          done({
+            detectedLanguage: r.sourceLanguage ?? "en",
+            durationSeconds: heard[heard.length - 1].end + 0.5,
+            segments: heard,
+            words: heard.reduce((a, s) => a + s.text.split(" ").length, 0),
+            summary: r.notes ? NOTES : null,
+            files: [
+              `${folder}\\${base}.txt`,
+              `${folder}\\${base} (timed).txt`,
+              `${folder}\\${base}.srt`,
+              `${folder}\\${base}.vtt`,
+              ...(r.notes ? [`${folder}\\${base} notes.md`] : []),
+            ],
+          });
+        }
+        break;
+      default:
+        move(r, "PREPARING", 0, 0);
+    }
+    return;
+  }
+  if (r.flow === "summarize") {
+    switch (r.stage) {
+      case "PREPARING":
+      case "READING":
+        if (inStage > 700) move({ ...r, words: 6_240 }, "SUMMARIZING", 0, 4);
+        else if (r.stage === "PREPARING") move(r, "READING", 0, 0);
+        break;
+      case "SUMMARIZING": {
+        const d = Math.min(r.total, Math.floor(inStage / 700));
+        if (d >= r.total) move(r, "SAVING", 0, 0);
+        else if (d !== r.done) put({ ...r, done: d });
+        break;
+      }
+      case "SAVING":
+        if (inStage > 300) done({ summary: SUMMARY, files: [`${folder}\\${base} summary.md`] });
+        break;
+    }
+    return;
+  }
+  switch (r.stage) {
+    case "PREPARING":
+    case "READING":
+      if (inStage > 600) move({ ...r, words: 74 }, "SPEAKING", 0, READING.length);
+      else if (r.stage === "PREPARING") move(r, "READING", 0, 0);
+      break;
+    case "SPEAKING": {
+      const d = Math.min(r.total, Math.floor(inStage / 350));
+      if (d >= r.total) move(r, "ASSEMBLING", 0, 0);
+      else if (d !== r.done) put({ ...r, done: d });
+      break;
+    }
+    case "ASSEMBLING":
+      if (inStage > 400) move(r, "SAVING", 0, 0);
+      break;
+    case "SAVING":
+      if (inStage > 300) {
+        const lines = readingLines(READING);
+        const choice = pick(r.targetLanguage, false);
+        done({
+          segments: lines,
+          durationSeconds: lines[lines.length - 1].end + 0.3,
+          voiceName: choice?.voice.name ?? null,
+          audio: track(lines, false),
+          files: [`${folder}\\${base}.m4a`],
+        });
+      }
       break;
   }
 }
@@ -414,6 +697,66 @@ function seed() {
       createdAt: Date.now() - 26 * hour,
     }),
   ];
+  const meeting = segments(8, "en", false);
+  const reading = readingLines(READING);
+  const f = (id: string, file: string) => `${FOLDER}\\${id}\\${file}`;
+  runs.push(
+    blank({
+      id: "flow_seed_t",
+      flow: "transcribe",
+      input: "C:\\Users\\you\\Recordings\\weekly-sync.m4a",
+      inputName: "weekly-sync.m4a",
+      source: "FILE",
+      targetLanguage: "",
+      keepVoice: false,
+      status: "DONE",
+      detectedLanguage: "en",
+      durationSeconds: meeting[meeting.length - 1].end + 0.5,
+      segments: meeting,
+      notes: true,
+      summary: NOTES,
+      words: 76,
+      files: ["weekly-sync.txt", "weekly-sync (timed).txt", "weekly-sync.srt", "weekly-sync.vtt", "weekly-sync notes.md"].map((n) =>
+        f("flow_seed_t", n),
+      ),
+      elapsedMs: 38_000,
+      createdAt: Date.now() - 2 * hour,
+    }),
+    blank({
+      id: "flow_seed_s",
+      flow: "summarize",
+      input: "C:\\Users\\you\\Documents\\tenancy-agreement.pdf",
+      inputName: "tenancy-agreement.pdf",
+      source: "FILE",
+      targetLanguage: "",
+      keepVoice: false,
+      status: "DONE",
+      summary: SUMMARY,
+      words: 6_240,
+      files: [f("flow_seed_s", "tenancy-agreement summary.md")],
+      elapsedMs: 52_000,
+      createdAt: Date.now() - 3 * hour,
+    }),
+    blank({
+      id: "flow_seed_r",
+      flow: "read-aloud",
+      input: "C:\\Users\\you\\Books\\chapter-one.docx",
+      inputName: "chapter-one.docx",
+      source: "FILE",
+      targetLanguage: "en",
+      modelId: null,
+      keepVoice: false,
+      status: "DONE",
+      voiceName: "Supertonic",
+      segments: reading,
+      durationSeconds: reading[reading.length - 1].end + 0.3,
+      audio: track(reading, false),
+      words: 74,
+      files: [f("flow_seed_r", "chapter-one.m4a")],
+      elapsedMs: 21_000,
+      createdAt: Date.now() - 5 * hour,
+    }),
+  );
 }
 
 // ---------------------------------------------------------------- the microphone
@@ -526,6 +869,17 @@ export function registerFlowsMocks(): void {
   mock("flows_again", (a) => {
     const old = runs.find((x) => x.id === a.id);
     if (!old) throw new Error("That run is gone.");
+    if (old.flow !== "translate-audio") {
+      const order: Order = {
+        flow: old.flow,
+        language: old.flow === "transcribe" ? old.sourceLanguage : old.targetLanguage || null,
+        notes: old.notes,
+        length: old.length,
+        focus: old.focus,
+        female: old.female,
+      };
+      return queue(orderRun(order, { input: old.input, inputName: old.inputName, source: old.source }));
+    }
     return queue(
       blank({
         input: old.input,
@@ -537,6 +891,68 @@ export function registerFlowsMocks(): void {
       }),
     );
   });
+  mock("flows_plan_for", (a) =>
+    planFor(a.input as string | null, a.microphone as boolean, (a.text as string | null) ?? null, a.order as Order),
+  );
+  mock("flows_install_for", (a) => {
+    if (install && !install.error) return;
+    const order = a.order as Order;
+    const p = planFor(a.input as string | null, a.microphone as boolean, (a.text as string | null) ?? null, order);
+    if (!p.needs.length) return;
+    let done = 0;
+    const step = p.totalBytes / 30;
+    install = { what: p.needs[0].what, done: 0, total: p.totalBytes, error: null };
+    mockEmit("flows", { install });
+    installTimer = window.setInterval(() => {
+      done = Math.min(p.totalBytes, done + step);
+      let before = 0;
+      const now = p.needs.find((n) => (before += n.bytes) > done) ?? p.needs[p.needs.length - 1];
+      install = { what: now.what, done, total: p.totalBytes, error: null };
+      if (done >= p.totalBytes) {
+        window.clearInterval(installTimer);
+        for (const n of p.needs) {
+          if (n.what === "the speech model") installed.speech = true;
+          if (n.what === "the voice engine") installed.engine = true;
+          if (n.what.startsWith("FFmpeg")) installed.ffmpeg = true;
+          if (n.what.startsWith("the document engine")) installed.pandoc = true;
+          if (n.what === "the PDF engine") installed.pdfium = true;
+        }
+        const choice = order.language ? pick(order.language, false) : null;
+        if (choice && order.flow === "read-aloud") installed.voices.add(choice.voice.id);
+        install = null;
+      }
+      mockEmit("flows", { install });
+    }, 150);
+  });
+  mock("flows_submit_for", (a) => {
+    const order = a.order as Order;
+    const input = (a.input as string | null) ?? null;
+    const text = (a.text as string | null) ?? null;
+    checkFor(input, false, text, order);
+    const id = newId();
+    if (text && text.trim()) {
+      return queue(orderRun(order, { id, input: `${FOLDER}\\${id}\\text.txt`, inputName: firstWords(text), source: "TEXT" }));
+    }
+    return queue(orderRun(order, { id, input: input!, inputName: input!.split(/[\\/]/).pop() ?? input!, source: "FILE" }));
+  });
+  mock("flows_record_stop_for", async (a) => {
+    stopLevels();
+    await new Promise((r) => setTimeout(r, 300));
+    const order = a.order as Order;
+    checkFor(null, true, null, order);
+    const id = newId();
+    return queue(orderRun(order, { id, input: `${FOLDER}\\${id}\\recording.wav`, inputName: "Recording", source: "MICROPHONE" }));
+  });
+  mock("flows_peek", async (a): Promise<Peek> => {
+    await new Promise((r) => setTimeout(r, 400));
+    const text = (a.text as string | null) ?? null;
+    if (text) return { language: guessLanguage(text), words: text.trim().split(/\s+/).filter(Boolean).length };
+    const input = (a.input as string | null) ?? "";
+    if (PANDOC.includes(extension(input)) && !installed.pandoc) return { language: null, words: 0 };
+    return { language: /[-_](de|tr|fr|es)\./.exec(input)?.[1] ?? "en", words: 2_480 };
+  });
+  mock("flows_open_file", () => undefined);
+  mock("flows_reveal_file", () => undefined);
   mock("flows_open_folder", () => undefined);
   mock("flows_open", () => undefined);
   mock("flows_reveal", () => undefined);

@@ -43,6 +43,8 @@ globset = "0.4"
 sysinfo = "0.33"
 once_cell = "1"
 async-trait = "0.1"
+# The Read aloud Nooklet: which language a text is in, for its voice.
+whatlang = "0.16"
 # Voice prompt capture.
 cpal = "0.15"
 hound = "3"

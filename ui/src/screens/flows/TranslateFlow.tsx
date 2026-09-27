@@ -27,6 +27,7 @@ import {
   flowsSubmit,
   flowSrc,
   onFlows,
+  TRANSLATE_AUDIO,
   type Install,
   type Language,
   type Plan,
@@ -143,12 +144,12 @@ export function TranslateFlow({
   useEffect(() => {
     let alive = true;
     flowsRuns().then(
-      (r) => alive && setRuns([...r].sort(newestFirst)),
+      (r) => alive && setRuns(r.filter((x) => x.flow === TRANSLATE_AUDIO).sort(newestFirst)),
       (e) => alive && sayRef.current(messageOf(e)),
     );
     flowsInstallState().then((i) => alive && setInstall(i), () => undefined);
     const off = onFlows((e) => {
-      if (e.run) {
+      if (e.run && e.run.flow === TRANSLATE_AUDIO) {
         const run = e.run;
         setRuns((all) => [run, ...all.filter((r) => r.id !== run.id)].sort(newestFirst));
         if (run.status === "DONE" && autoplay.current.has(run.id)) {

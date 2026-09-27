@@ -26,19 +26,25 @@ export function defaultTarget(locale: string | undefined, languages: Language[])
   return code;
 }
 
-/** What a running translation is doing, above its progress bar. */
+/** What a running run is doing, above its progress bar. */
 export function stageText(run: Run): string {
   switch (run.stage) {
     case "PREPARING":
       return run.source === "MICROPHONE" ? "Getting the recording ready" : "Preparing the audio";
+    case "READING":
+      return run.source === "TEXT" ? "Reading the text" : "Reading the document";
     case "LISTENING":
       return run.total > 1 ? `Listening · part ${run.done + 1} of ${run.total}` : "Listening";
     case "TRANSLATING":
       return run.total > 0 ? `Translating · ${run.done} of ${run.total} lines` : "Translating";
+    case "SUMMARIZING":
+      if (run.flow === "transcribe") return "Writing the notes";
+      return run.total > 1 ? `Summarizing · ${run.done} of ${run.total} steps` : "Summarizing";
     case "SPEAKING":
+      if (run.flow === "read-aloud") return run.total > 0 ? `Reading aloud · ${run.done} of ${run.total} lines` : "Reading aloud";
       return run.total > 0 ? `Speaking · ${run.done} of ${run.total} lines` : "Speaking";
     case "ASSEMBLING":
-      return "Putting the track together";
+      return run.flow === "read-aloud" ? "Putting the reading together" : "Putting the track together";
     case "SAVING":
       return "Saving";
     default:
@@ -79,6 +85,48 @@ export function translationText(run: Run): string {
     .map((s) => (s.translation ?? "").trim())
     .filter(Boolean)
     .join("\n");
+}
+
+/** "2,480 words". */
+export function wordsText(words: number): string {
+  return `${words.toLocaleString("en-US")} ${words === 1 ? "word" : "words"}`;
+}
+
+/** About how long `words` take to read aloud, at 150 words a minute: "about 17 minutes". */
+export function listenText(words: number): string {
+  const minutes = Math.max(1, Math.round(words / 150));
+  if (minutes < 60) return `about ${minutes} ${minutes === 1 ? "minute" : "minutes"}`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `about ${hours} h${rest ? ` ${rest} min` : ""}`;
+}
+
+/** A finished Nooklet run's line: how much was heard or read, how long it took, and the model. */
+export function nookletDoneText(run: Run): string {
+  const parts: (string | null)[] =
+    run.flow === "transcribe"
+      ? [`${clock(run.durationSeconds * 1000)} of speech`, run.words ? wordsText(run.words) : null]
+      : run.flow === "read-aloud"
+        ? [run.words ? wordsText(run.words) : null, `${clock(run.durationSeconds * 1000)} to listen`]
+        : [run.words ? `${wordsText(run.words)} read` : null];
+  parts.push(`done in ${clock(run.elapsedMs)}`);
+  if (run.flow !== "read-aloud") parts.push(run.summary ? run.modelId : null);
+  return parts.filter(Boolean).join(" · ");
+}
+
+/** The transcript as text, with a time before each paragraph, for the clipboard and the card. */
+export function transcriptParagraphs(run: Run, pause = 2): { at: number; text: string }[] {
+  const out: { at: number; text: string }[] = [];
+  let last: number | null = null;
+  for (const s of run.segments) {
+    const text = s.text.trim();
+    if (!text) continue;
+    const now = out[out.length - 1];
+    if (!now || (last != null && s.start - last >= pause) || now.text.length > 700) out.push({ at: s.start, text });
+    else now.text += ` ${text}`;
+    last = s.end;
+  }
+  return out;
 }
 
 /** A file's name and its folder from a Windows or POSIX path. */

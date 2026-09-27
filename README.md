@@ -88,6 +88,19 @@ and there is no JVM.
   PDF when asked). A result goes beside its file ("report.pdf", "report (2).pdf" when that is
   taken) or into a folder chosen; the conversions follow, one at a time, each result to open or
   show in Explorer.
+- Three more run on the translator's queue, so no two of them want the card at once:
+  *Transcribe a recording* writes down a file or what the microphone hears (Whisper, the language
+  told or chosen) as paragraphs, a timed transcript, SRT and WebVTT subtitles, and with *Notes*
+  the chat model adds what was said in short: key points, decisions, who does what by when, open
+  questions. *Summarize a document* reads a PDF (scans through Windows' text recognition), a Word
+  file, a web page, an e-book, slides or pasted text through the converter's engines, and the chat
+  model writes a short or detailed summary with what is worth checking (deadlines, amounts,
+  obligations), in the document's language or another, looking first at what the person asks
+  about; a long document is summarized in parts of about 2,800 tokens, then as one. *Read it
+  aloud* reads a document or pasted text with a standard voice (Supertonic's woman's or man's
+  voice, VoxCPM2 for the languages only it speaks), the language told from the text (whatlang),
+  Markdown's marks and code left out, sentences joined into lines of about 240 characters, as one
+  track (M4A with FFmpeg in, else WAV) that plays with its text lit line by line.
 - **Settings**: *General* (theme, updates, erase everything), *Models* (the curated *Library*,
   *Browse* for any GGUF on Hugging Face sized against your GPU, *Workers*: which model writes the
   code and which transcribes the voice prompt, and the worker's web access), *Runtime* (engines,

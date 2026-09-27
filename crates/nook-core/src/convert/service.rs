@@ -22,7 +22,7 @@ use super::run::{self, Kit};
 use super::system;
 use crate::busy::BusyWork;
 use crate::events::{self, topic};
-use crate::flow::{Install, Stopped};
+use crate::flow::{Install, Reader, ReaderNeed, Stopped};
 use crate::home::Home;
 use crate::pdf::PdfEditor;
 use crate::runtime::{Backend, EngineComponent, RuntimeManager, StagedProgress};
@@ -731,6 +731,76 @@ fn find_file(dir: &Path, name: &str, depth: usize) -> Option<PathBuf> {
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
         .find_map(|e| find_file(&e.path(), name, depth - 1))
+}
+
+/// The converter reads documents for the Nooklets that take them (Summarize, Read aloud): into
+/// Markdown, by the same routes as a conversion to it, one at a time with the conversions.
+#[async_trait::async_trait]
+impl Reader for ConvertService {
+    fn needs(&self, path: &Path) -> std::result::Result<Vec<ReaderNeed>, String> {
+        let from = formats::of_path(path).ok_or_else(|| {
+            let ext = path
+                .extension()
+                .map(|e| e.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if ext.is_empty() {
+                "Nook cannot tell what kind of file this is.".to_string()
+            } else {
+                format!("Nook does not read .{ext} files.")
+            }
+        })?;
+        if from.kind == Kind::Image {
+            return Err("This is a picture. Choose a document, or a PDF of it.".into());
+        }
+        if ["md", "txt"].contains(&from.id) {
+            return Ok(Vec::new());
+        }
+        let md = formats::by_id("md").expect("Markdown is a format");
+        let steps = routes::route(from, md, &self.have())
+            .ok_or_else(|| format!("Nook cannot read the words of a {} yet.", from.name))?;
+        let mut needs: Vec<ReaderNeed> = Vec::new();
+        for e in routes::engines(&steps) {
+            let Some(c) = component(e).filter(|_| !self.installed(e)) else {
+                continue;
+            };
+            if !needs.iter().any(|n| n.component == c) {
+                needs.push(ReaderNeed {
+                    component: c,
+                    what: what(e).to_string(),
+                    bytes: self.bytes(e),
+                });
+            }
+        }
+        Ok(needs)
+    }
+
+    async fn read(&self, path: &Path, work: &Path, cancel: &CancellationToken) -> Result<String> {
+        let from = formats::of_path(path).ok_or_else(|| anyhow!("Nook does not read this file"))?;
+        if ["md", "txt"].contains(&from.id) {
+            return crate::flow::reader::read_plain(path);
+        }
+        let md = formats::by_id("md").expect("Markdown is a format");
+        let steps = routes::route(from, md, &self.have())
+            .ok_or_else(|| anyhow!("Nook cannot read the words of a {} yet.", from.name))?;
+        let _turn = tokio::select! {
+            t = self.turn.lock() => t,
+            _ = cancel.cancelled() => return Err(Stopped.into()),
+        };
+        let out = work.join("words.md");
+        let written = run::convert(&self.kit(), &steps, path, &out, work, cancel).await;
+        let text = written.and_then(|files| {
+            let mut all = String::new();
+            for f in files.iter().filter(|f| f.is_file()) {
+                if !all.is_empty() {
+                    all.push_str("\n\n");
+                }
+                all.push_str(&crate::flow::reader::read_plain(f)?);
+            }
+            Ok(all)
+        });
+        let _ = std::fs::remove_dir_all(work);
+        text
+    }
 }
 
 impl BusyWork for ConvertService {

@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 
 use nook_core::flow::voices::{Offered, Voices};
-use nook_core::flow::{Install, Plan, PlanInput, Run};
+use nook_core::flow::{Install, Order, Peek, Plan, PlanInput, Run};
 use tauri::State;
 
 use super::{blocking, err, CmdResult};
@@ -20,6 +20,14 @@ fn plan_input(input: Option<String>, microphone: bool) -> PlanInput {
         _ if microphone => PlanInput::Microphone,
         Some(p) => PlanInput::File(PathBuf::from(p)),
         None => PlanInput::Nothing,
+    }
+}
+
+/// A Nooklet's input: the microphone, pasted text, a file, or nothing yet.
+fn nooklet_input(input: Option<String>, microphone: bool, text: Option<String>) -> PlanInput {
+    match text {
+        Some(t) if !microphone && !t.trim().is_empty() => PlanInput::Text(t),
+        _ => plan_input(input, microphone),
     }
 }
 
@@ -102,6 +110,80 @@ pub async fn flows_submit(
     })
     .await
     .map_err(err)?
+}
+
+/// What a Nooklet's run (Transcribe, Summarize, Read aloud) would do and still needs: for the
+/// file `input`, pasted `text`, or the microphone.
+#[tauri::command]
+pub async fn flows_plan_for(
+    state: State<'_, AppState>,
+    input: Option<String>,
+    microphone: bool,
+    text: Option<String>,
+    order: Order,
+) -> CmdResult<Plan> {
+    let flows = state.0.flows.clone();
+    let input = nooklet_input(input, microphone, text);
+    blocking(move || Ok(flows.plan_for(&input, &order))).await
+}
+
+/// Starts the download of everything a Nooklet's plan says is missing.
+#[tauri::command]
+pub async fn flows_install_for(
+    state: State<'_, AppState>,
+    input: Option<String>,
+    microphone: bool,
+    text: Option<String>,
+    order: Order,
+) -> CmdResult<()> {
+    let flows = state.0.flows.clone();
+    let input = nooklet_input(input, microphone, text);
+    tauri::async_runtime::spawn_blocking(move || flows.start_install_for(&input, &order))
+        .await
+        .map_err(err)?
+}
+
+/// Queues a Nooklet's run on a file or on pasted text.
+#[tauri::command]
+pub async fn flows_submit_for(
+    state: State<'_, AppState>,
+    input: Option<String>,
+    text: Option<String>,
+    order: Order,
+) -> CmdResult<Run> {
+    let flows = state.0.flows.clone();
+    let input = nooklet_input(input, false, text);
+    tauri::async_runtime::spawn_blocking(move || flows.submit_for(&input, &order))
+        .await
+        .map_err(err)?
+}
+
+/// Stops recording and queues the transcript of what was said.
+#[tauri::command]
+pub async fn flows_record_stop_for(state: State<'_, AppState>, order: Order) -> CmdResult<Run> {
+    let recorder = state.0.recorder.clone();
+    let wav = blocking(move || recorder.stop()).await?;
+    let flows = state.0.flows.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let run = flows.submit_recording_for(&wav, &order);
+        if run.is_err() {
+            let _ = std::fs::remove_file(&wav);
+        }
+        run
+    })
+    .await
+    .map_err(err)?
+}
+
+/// A document's or pasted text's language (when it can be told) and its words, before a run.
+#[tauri::command]
+pub async fn flows_peek(
+    state: State<'_, AppState>,
+    input: Option<String>,
+    text: Option<String>,
+) -> CmdResult<Peek> {
+    let input = nooklet_input(input, false, text);
+    Ok(state.0.flows.peek(&input).await)
 }
 
 /// Opens the default microphone for a spoken run; levels go out on the "speech" topic.
@@ -210,5 +292,43 @@ pub async fn flows_open(state: State<'_, AppState>, id: String, video: bool) -> 
 #[tauri::command]
 pub async fn flows_reveal(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     let file = run_file(&state, &id, false)?;
+    blocking(move || Ok(tauri_plugin_opener::reveal_item_in_dir(&file)?)).await
+}
+
+/// One of the files a run wrote (a transcript, a summary, a reading), and nothing else.
+fn written_file(state: &State<'_, AppState>, id: &str, path: &str) -> CmdResult<PathBuf> {
+    let run = state
+        .0
+        .flows
+        .run(id)
+        .ok_or_else(|| "That run is gone.".to_string())?;
+    let wrote = run.files.iter().any(|f| f == path)
+        || run.audio.as_deref() == Some(path)
+        || run.video.as_deref() == Some(path);
+    if !wrote {
+        return Err("That is not one of the run's files.".into());
+    }
+    Ok(PathBuf::from(path))
+}
+
+/// Opens a file a run wrote in the program Windows opens it with.
+#[tauri::command]
+pub async fn flows_open_file(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> CmdResult<()> {
+    let file = written_file(&state, &id, &path)?;
+    blocking(move || Ok(tauri_plugin_opener::open_path(&file, None::<&str>)?)).await
+}
+
+/// Shows a file a run wrote selected in Explorer.
+#[tauri::command]
+pub async fn flows_reveal_file(
+    state: State<'_, AppState>,
+    id: String,
+    path: String,
+) -> CmdResult<()> {
+    let file = written_file(&state, &id, &path)?;
     blocking(move || Ok(tauri_plugin_opener::reveal_item_in_dir(&file)?)).await
 }

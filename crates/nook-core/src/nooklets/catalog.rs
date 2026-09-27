@@ -159,6 +159,149 @@ pub const NOOKLETS: &[Nooklet] = &[
             "converti",
         ],
     },
+    Nooklet {
+        id: "transcribe",
+        title: "Transcribe a recording",
+        blurb: "A meeting, a lecture, an interview or a voice memo, written down, with notes.",
+        examples: &[
+            "transcribe a recording",
+            "transcribe this meeting",
+            "turn my voice memo into text",
+            "write down what was said in an interview",
+            "convert speech to text",
+            "make a transcript of a lecture",
+            "take notes from a meeting recording",
+            "meeting minutes from a call recording",
+            "summarize my meeting recording",
+            "what was said in this recording",
+            "make subtitles for my video",
+            "add captions to a video in its own language",
+            "dictate a text",
+            "turn a podcast episode into text",
+            "ses kaydını yazıya dök",
+            "toplantı kaydını yazıya geçir",
+            "Transkribiere diese Aufnahme",
+            "Besprechung als Text",
+            "transcribir esta entrevista",
+            "transcrire cette réunion",
+        ],
+        hints: &[
+            "transcribe",
+            "transcript",
+            "transcription",
+            "transcripts",
+            "captions",
+            "caption",
+            "minutes",
+            "dictate",
+            "dictation",
+            "recording",
+            "meeting",
+            "lecture",
+            "interview",
+            "memo",
+            "yazıya",
+            "deşifre",
+            "transkribiere",
+            "transkription",
+            "transkribieren",
+            "transcribir",
+            "transcrire",
+            "transcription",
+        ],
+    },
+    Nooklet {
+        id: "summarize",
+        title: "Summarize a document",
+        blurb: "The key points of a long PDF, report, contract or article, and what to watch for.",
+        examples: &[
+            "summarize a document",
+            "summarize this PDF",
+            "what are the key points of this report",
+            "give me a short summary of this contract",
+            "tl;dr of a long article",
+            "what does this document say",
+            "explain this letter in simple words",
+            "the main points of a research paper",
+            "what should I watch out for in this agreement",
+            "summarize the terms and conditions",
+            "make a summary in English",
+            "an overview of a long text",
+            "bu raporu özetle",
+            "bu sözleşmenin özeti",
+            "fasse dieses Dokument zusammen",
+            "Zusammenfassung eines Berichts",
+            "resume este documento",
+            "résume ce document",
+        ],
+        hints: &[
+            "summarize",
+            "summarise",
+            "summary",
+            "summaries",
+            "tldr",
+            "tl",
+            "dr",
+            "gist",
+            "overview",
+            "key",
+            "points",
+            "özetle",
+            "özet",
+            "özeti",
+            "zusammen",
+            "zusammenfassen",
+            "zusammenfassung",
+            "fasse",
+            "résume",
+            "résumé",
+            "resume",
+            "resumir",
+            "resumen",
+            "riassumi",
+        ],
+    },
+    Nooklet {
+        id: "read-aloud",
+        title: "Read it aloud",
+        blurb: "Any document or text, read to you by a natural voice: an audiobook, a voiceover.",
+        examples: &[
+            "read this document aloud",
+            "read a PDF out loud to me",
+            "turn a book into an audiobook",
+            "listen to an article instead of reading it",
+            "text to speech",
+            "make a voiceover from my script",
+            "narrate this document",
+            "I'd rather listen to this report",
+            "make an audio file of this text",
+            "read this file to me",
+            "bu metni sesli oku",
+            "kitabı sesli kitap yap",
+            "lies mir diesen Text vor",
+            "ein Hörbuch aus einem Buch machen",
+            "leer este texto en voz alta",
+            "lis ce texte à voix haute",
+        ],
+        hints: &[
+            "aloud",
+            "loud",
+            "listen",
+            "audiobook",
+            "narrate",
+            "narrator",
+            "narration",
+            "voiceover",
+            "tts",
+            "sesli",
+            "oku",
+            "vorlesen",
+            "vor",
+            "hörbuch",
+            "voz",
+            "voix",
+        ],
+    },
 ];
 
 pub fn by_id(id: &str) -> Option<&'static Nooklet> {
@@ -190,13 +333,18 @@ pub struct Preset {
 /// The target a request names: after "to", "into", "as" or "in" when it has one, else the last
 /// one it mentions (Turkish and others put the target last).
 fn named_target<T>(ws: &[String], find: impl Fn(&str) -> Option<T>) -> Option<T> {
+    named(ws, find, false)
+}
+
+/// As [`named_target`]; with `strict`, only a target after "to", "into", "in"...
+fn named<T>(ws: &[String], find: impl Fn(&str) -> Option<T>, strict: bool) -> Option<T> {
     let mut after_to = None;
     let mut last = None;
     for (i, w) in ws.iter().enumerate() {
         let Some(t) = find(w) else { continue };
         if i > 0
             && [
-                "to", "into", "as", "in", "en", "a", "al", "ins", "zu", "nach",
+                "to", "into", "as", "in", "en", "a", "al", "ins", "zu", "nach", "auf",
             ]
             .contains(&ws[i - 1].as_str())
         {
@@ -207,7 +355,25 @@ fn named_target<T>(ws: &[String], find: impl Fn(&str) -> Option<T>) -> Option<T>
     let (i, t) = last?;
     match after_to {
         Some(j) if j != i => find(&ws[j]),
-        _ => Some(t),
+        Some(_) => Some(t),
+        None if strict => None,
+        None => Some(t),
+    }
+}
+
+/// A language a word names, in English, in its own tongue or in Turkish.
+fn language(w: &str) -> Option<languages::Language> {
+    languages::ALL
+        .iter()
+        .find(|l| l.name.eq_ignore_ascii_case(w) || native(w) == Some(l.code))
+        .copied()
+}
+
+fn language_preset(lang: languages::Language, label: String) -> Preset {
+    Preset {
+        key: "language".into(),
+        value: lang.code.into(),
+        label,
     }
 }
 
@@ -216,17 +382,19 @@ pub fn preset(id: &str, request: &str) -> Option<Preset> {
     let ws = words(request);
     match id {
         "translate" => {
-            let lang = named_target(&ws, |w| {
-                languages::ALL
-                    .iter()
-                    .find(|l| l.name.eq_ignore_ascii_case(w) || native(w) == Some(l.code))
-                    .copied()
-            })?;
-            Some(Preset {
-                key: "language".into(),
-                value: lang.code.into(),
-                label: format!("into {}", lang.name),
-            })
+            let lang = named_target(&ws, language)?;
+            Some(language_preset(lang, format!("into {}", lang.name)))
+        }
+        // The spoken language, or the text's: the language the request names.
+        "transcribe" | "read-aloud" => {
+            let lang = named_target(&ws, language)?;
+            Some(language_preset(lang, format!("in {}", lang.name)))
+        }
+        // The language to write the summary in: only one asked for ("in English"), as
+        // "summarize this German contract" names the document's.
+        "summarize" => {
+            let lang = named(&ws, language, true)?;
+            Some(language_preset(lang, format!("in {}", lang.name)))
         }
         "convert" => {
             let id = named_target(&ws, formats::named)?;
@@ -347,6 +515,21 @@ mod tests {
             "csv"
         );
         assert_eq!(preset("pdf", "fix a typo"), None);
+        let p = preset("transcribe", "transcribe this German interview").unwrap();
+        assert_eq!((p.value.as_str(), p.label.as_str()), ("de", "in German"));
+        assert_eq!(
+            preset("read-aloud", "lis ce texte en français à voix haute")
+                .unwrap()
+                .value,
+            "fr"
+        );
+        assert_eq!(preset("summarize", "summarize this German contract"), None);
+        assert_eq!(
+            preset("summarize", "summarize this German contract in English")
+                .unwrap()
+                .value,
+            "en"
+        );
     }
 
     #[test]
@@ -359,6 +542,9 @@ mod tests {
         assert_eq!(best("translate my speech into French").0, "translate");
         assert_eq!(best("convert excel to csv").0, "convert");
         assert_eq!(best("fix a typo in my pdf").0, "pdf");
+        assert_eq!(best("transcribe my meeting recording").0, "transcribe");
+        assert_eq!(best("give me a summary of this report").0, "summarize");
+        assert_eq!(best("read this article aloud").0, "read-aloud");
         assert!(best("book a flight").1 < 0.3, "no match");
     }
 }

@@ -21,6 +21,24 @@ const NOOKLETS: { id: NookletId; title: string; blurb: string; words: string[] }
     words: ["translate", "speech", "speak", "say", "voice", "audio", "video", "podcast", "dub", "language", "çevir", "übersetze", "traduire", "traducir"],
   },
   {
+    id: "transcribe",
+    title: "Transcribe a recording",
+    blurb: "A meeting, a lecture, an interview or a voice memo, written down, with notes.",
+    words: ["transcri", "recording", "meeting", "memo", "lecture", "interview", "notes", "minutes", "caption", "yazıya", "transkrib"],
+  },
+  {
+    id: "summarize",
+    title: "Summarize a document",
+    blurb: "The key points of a long PDF, report, contract or article, and what to watch for.",
+    words: ["summar", "summaries", "tldr", "gist", "points", "overview", "contract", "report", "özet", "zusammen", "résum", "resum"],
+  },
+  {
+    id: "read-aloud",
+    title: "Read it aloud",
+    blurb: "Any document or text, read to you by a natural voice: an audiobook, a voiceover.",
+    words: ["aloud", "loud", "listen", "audiobook", "narrat", "voiceover", "sesli", "vorlesen", "vor"],
+  },
+  {
     id: "pdf",
     title: "Edit a PDF",
     blurb: "Change any text; the font stays the same",
@@ -58,7 +76,7 @@ const FORMATS: [RegExp, string, string][] = [
 
 /** The language or format named last, after "into"/"to" when there is one (catalog.rs preset). */
 function preset(id: NookletId, request: string): Preset | null {
-  const table = id === "translate" ? LANGUAGES : id === "convert" ? FORMATS : null;
+  const table = id === "convert" ? FORMATS : id === "pdf" ? null : LANGUAGES;
   if (!table) return null;
   const after = request.match(/\b(?:into|to|as|in|ins|en|zu)\b(.*)$/i)?.[1] ?? "";
   let best: { at: number; hit: [RegExp, string, string] } | null = null;
@@ -69,7 +87,10 @@ function preset(id: NookletId, request: string): Preset | null {
     }
     if (best) break;
   }
-  return best ? { key: id === "translate" ? "language" : "format", value: best.hit[1], label: best.hit[2] } : null;
+  if (!best) return null;
+  const [, value, name] = best.hit;
+  if (id === "convert") return { key: "format", value, label: `to ${name}` };
+  return { key: "language", value, label: id === "translate" ? `into ${name}` : `in ${name}` };
 }
 
 function find(request: string): Found {

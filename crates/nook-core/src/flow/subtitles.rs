@@ -71,6 +71,81 @@ pub fn plain(segments: &[Segment], translated: bool) -> String {
     out
 }
 
+/// WebVTT, the web's subtitles: a header, then cues with "HH:MM:SS.mmm --> HH:MM:SS.mmm".
+pub fn vtt(segments: &[Segment]) -> String {
+    let mut out = String::from("WEBVTT\n\n");
+    for s in segments {
+        let Some(line) = s.line(false) else { continue };
+        out.push_str(&format!(
+            "{} --> {}\n{line}\n\n",
+            timestamp(s.start).replace(',', "."),
+            timestamp(s.end).replace(',', ".")
+        ));
+    }
+    out
+}
+
+/// The transcript to read: what was said in paragraphs, a new one after a pause of `pause`
+/// seconds or more, or when a paragraph has grown long.
+pub fn paragraphs(segments: &[Segment], pause: f64) -> String {
+    let mut out = String::new();
+    let mut now = String::new();
+    let mut last_end: Option<f64> = None;
+    for s in segments {
+        let Some(line) = s.line(false) else { continue };
+        let gap = last_end.map_or(0.0, |e| s.start - e);
+        if !now.is_empty() && (gap >= pause || now.chars().count() > 700) {
+            out.push_str(now.trim());
+            out.push_str("\n\n");
+            now.clear();
+        }
+        now.push_str(line);
+        now.push(' ');
+        last_end = Some(s.end);
+    }
+    if !now.trim().is_empty() {
+        out.push_str(now.trim());
+        out.push('\n');
+    }
+    out
+}
+
+/// The transcript with a time before each paragraph ("[01:02]"), for reading along a recording.
+pub fn timed(segments: &[Segment], pause: f64) -> String {
+    let mut out = String::new();
+    let mut now = String::new();
+    let mut last_end: Option<f64> = None;
+    for s in segments {
+        let Some(line) = s.line(false) else { continue };
+        let gap = last_end.map_or(f64::INFINITY, |e| s.start - e);
+        if gap >= pause || now.chars().count() > 700 {
+            if !now.is_empty() {
+                out.push_str(now.trim_end());
+                out.push_str("\n\n");
+            }
+            now = format!("[{}] ", clock(s.start));
+        }
+        now.push_str(line);
+        now.push(' ');
+        last_end = Some(s.end);
+    }
+    if !now.trim().is_empty() {
+        out.push_str(now.trim_end());
+        out.push('\n');
+    }
+    out
+}
+
+/// "1:02:03" for an hour and more, else "02:03".
+pub fn clock(seconds: f64) -> String {
+    let s = seconds.max(0.0) as u64;
+    if s >= 3600 {
+        format!("{}:{:02}:{:02}", s / 3600, s / 60 % 60, s % 60)
+    } else {
+        format!("{:02}:{:02}", s / 60, s % 60)
+    }
+}
+
 /// "01:02:03,450" for 3723.45 seconds.
 pub fn timestamp(seconds: f64) -> String {
     let ms = (seconds.max(0.0) * 1000.0).round() as u64;
@@ -100,5 +175,29 @@ mod tests {
         );
         assert_eq!(plain(&segments, false), "Hello.\nBye.\n");
         assert_eq!(timestamp(-1.0), "00:00:00,000");
+    }
+
+    #[test]
+    fn a_transcript_reads_in_paragraphs_and_as_web_subtitles() {
+        let segments = vec![
+            Segment::new(0.0, 1.0, "Good morning."),
+            Segment::new(1.2, 2.0, "Let's start."),
+            Segment::new(5.0, 6.0, "First, the budget."),
+            Segment::new(3725.0, 3726.0, " "),
+        ];
+        assert_eq!(
+            paragraphs(&segments, 2.0),
+            "Good morning. Let's start.\n\nFirst, the budget.\n"
+        );
+        assert_eq!(
+            timed(&segments, 2.0),
+            "[00:00] Good morning. Let's start.\n\n[00:05] First, the budget.\n"
+        );
+        assert_eq!(
+            vtt(&segments[..1]),
+            "WEBVTT\n\n00:00:00.000 --> 00:00:01.000\nGood morning.\n\n"
+        );
+        assert_eq!(clock(3723.0), "1:02:03");
+        assert_eq!(clock(65.4), "01:05");
     }
 }

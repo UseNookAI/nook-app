@@ -10,12 +10,15 @@ import { PagePane } from "../hub/PagePane";
 import { ConvertFlow } from "./ConvertFlow";
 import { NookletsHome } from "./NookletsHome";
 import { PdfFlow } from "./PdfFlow";
+import { ReadAloudFlow } from "./ReadAloudFlow";
+import { SummarizeFlow } from "./SummarizeFlow";
+import { TranscribeFlow } from "./TranscribeFlow";
 import { TranslateFlow } from "./TranslateFlow";
 import "./flows.css";
 import "./nooklets.css";
 
 /** The Nooklets, in the rail's order. */
-export type FlowKind = "TRANSLATE" | "PDF" | "CONVERT";
+export type FlowKind = "TRANSLATE" | "TRANSCRIBE" | "SUMMARIZE" | "READ_ALOUD" | "PDF" | "CONVERT";
 
 const FLOWS: { kind: FlowKind; id: NookletId; title: string; icon: string; blurb: string }[] = [
   {
@@ -24,6 +27,27 @@ const FLOWS: { kind: FlowKind; id: NookletId; title: string; icon: string; blurb
     title: "Translate speech",
     icon: "translate",
     blurb: "Speak or drop a file; hear it in another language",
+  },
+  {
+    kind: "TRANSCRIBE",
+    id: "transcribe",
+    title: "Transcribe a recording",
+    icon: "transcribe",
+    blurb: "A meeting or voice memo, written down, with notes",
+  },
+  {
+    kind: "SUMMARIZE",
+    id: "summarize",
+    title: "Summarize a document",
+    icon: "summarize",
+    blurb: "The key points of a long PDF, report or contract",
+  },
+  {
+    kind: "READ_ALOUD",
+    id: "read-aloud",
+    title: "Read it aloud",
+    icon: "read-aloud",
+    blurb: "Any document or text, read by a natural voice",
   },
   {
     kind: "PDF",
@@ -94,7 +118,10 @@ export function FlowsScreen({ say, onOpenModels }: { say: (message: string) => v
   }
 
   const presetFor = (kind: FlowKind) => (asked?.kind === kind ? asked : null);
-  const language = presetFor("TRANSLATE");
+  const languageFor = (kind: FlowKind) => {
+    const a = presetFor(kind);
+    return a ? { language: a.preset.value, nonce: a.nonce } : null;
+  };
   const format = presetFor("CONVERT");
   return (
     <PagePane>
@@ -133,13 +160,10 @@ export function FlowsScreen({ say, onOpenModels }: { say: (message: string) => v
           </div>
         </nav>
         <div className="fl-main">
-          {flow === "TRANSLATE" && (
-            <TranslateFlow
-              say={say}
-              onOpenModels={onOpenModels}
-              preset={language ? { language: language.preset.value, nonce: language.nonce } : null}
-            />
-          )}
+          {flow === "TRANSLATE" && <TranslateFlow say={say} onOpenModels={onOpenModels} preset={languageFor("TRANSLATE")} />}
+          {flow === "TRANSCRIBE" && <TranscribeFlow say={say} onOpenModels={onOpenModels} preset={languageFor("TRANSCRIBE")} />}
+          {flow === "SUMMARIZE" && <SummarizeFlow say={say} onOpenModels={onOpenModels} preset={languageFor("SUMMARIZE")} />}
+          {flow === "READ_ALOUD" && <ReadAloudFlow say={say} preset={languageFor("READ_ALOUD")} />}
           {flow === "PDF" && <PdfFlow say={say} onOpenChange={setNarrow} />}
           {flow === "CONVERT" && (
             <ConvertFlow
