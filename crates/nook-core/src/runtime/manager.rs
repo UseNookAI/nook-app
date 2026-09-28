@@ -1253,7 +1253,10 @@ impl RuntimeManager {
                 .entry(model_id.to_string())
                 .or_insert_with(|| Arc::new(EngineGate::new(1)))
                 .clone();
-            gate.acquire(priority).await?;
+            if gate.acquire(priority).await.is_err() {
+                // Closed: the model was unloaded while this waited for a slot.
+                continue;
+            }
             let slot = Slot {
                 gate: Some(gate),
                 priority,
