@@ -35,11 +35,12 @@ use super::fonts::{self, FontTraits, SystemFonts};
 use super::layout::{self, Line, Rect, Run};
 use super::ocr;
 use super::raster::{self, Pixels, PxBox};
+use super::undo::{self, UndoStack};
 use crate::convert::images;
 use crate::convert::pdftext::{PageText, TextLine};
 
 /// How many edits Undo can take back.
-pub const UNDO_DEPTH: usize = 30;
+pub const UNDO_DEPTH: usize = super::undo::DEPTH;
 /// The widest page image drawn, in pixels.
 pub const MAX_RENDER_WIDTH: i32 = 3200;
 /// Pixels per point a page is drawn at to read text in a picture (288 dpi).
@@ -223,6 +224,8 @@ impl PdfEditor {
                 // The documents borrow the library for as long as the app runs.
                 let pdfium: &'static Pdfium = Box::leak(Box::new(Pdfium::new(bindings)));
                 let _ = ready_tx.send(Ok(()));
+                // Undo steps a Nook that ended without closing its documents left on disk.
+                undo::sweep(&undo::root());
                 let mut engine = Engine {
                     pdfium,
                     docs: HashMap::new(),
@@ -373,8 +376,11 @@ impl PdfEditor {
 
 impl crate::busy::BusyWork for PdfEditor {
     fn busy_with(&self) -> Option<String> {
-        (self.unsaved.load(Ordering::SeqCst) > 0)
-            .then(|| "a PDF has changes that are not saved yet".to_string())
+        match self.unsaved.load(Ordering::SeqCst) {
+            0 => None,
+            1 => Some("a PDF has changes that are not saved yet".to_string()),
+            n => Some(format!("{n} PDFs have changes that are not saved yet")),
+        }
     }
 }
 
@@ -382,7 +388,8 @@ struct Doc {
     id: String,
     path: PathBuf,
     document: PdfDocument<'static>,
-    undo: Vec<Vec<u8>>,
+    /// The document before each edit, the oldest on disk when they are large.
+    undo: UndoStack,
     edits: u32,
     dirty: bool,
     saved_to: Option<PathBuf>,
@@ -551,10 +558,10 @@ impl Engine {
             bail!("This PDF has no pages.");
         }
         let doc = Doc {
+            undo: UndoStack::new(undo::root().join(format!("{}-{id}", std::process::id()))),
             id: id.clone(),
             path,
             document,
-            undo: Vec::new(),
             edits: 0,
             dirty: false,
             saved_to: None,
@@ -925,7 +932,7 @@ impl Engine {
         let bytes = self
             .doc(id)?
             .undo
-            .pop()
+            .pop()?
             .ok_or_else(|| anyhow!("The edit could not be taken back."))?;
         self.reload(id, bytes)?;
         let doc = self.doc(id)?;
@@ -1115,9 +1122,6 @@ impl Engine {
         drop(page);
 
         doc.undo.push(snapshot);
-        if doc.undo.len() > UNDO_DEPTH {
-            doc.undo.remove(0);
-        }
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1387,9 +1391,6 @@ impl Engine {
         drop(page);
 
         doc.undo.push(snapshot);
-        if doc.undo.len() > UNDO_DEPTH {
-            doc.undo.remove(0);
-        }
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1509,9 +1510,6 @@ impl Engine {
         drop(page);
 
         doc.undo.push(snapshot);
-        if doc.undo.len() > UNDO_DEPTH {
-            doc.undo.remove(0);
-        }
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1526,7 +1524,7 @@ impl Engine {
     fn undo(&mut self, id: &str) -> Result<PdfDoc> {
         let pdfium = self.pdfium;
         let doc = self.doc(id)?;
-        let Some(bytes) = doc.undo.pop() else {
+        let Some(bytes) = doc.undo.pop()? else {
             bail!("There is nothing to undo.");
         };
         doc.document = pdfium
@@ -1700,13 +1698,39 @@ impl Engine {
         Ok(())
     }
 
+    /// Saves to `to`; without one, where the document was saved last (Save after Save as), else
+    /// beside the original as "<name> (edited).pdf". The file is written whole beside the target
+    /// and then put in its place, so a save that fails halfway leaves the file as it was.
     fn save(&mut self, id: &str, to: Option<PathBuf>) -> Result<PdfDoc> {
         let doc = self.doc(id)?;
         let target = match to {
             Some(t) => t,
-            None => edited_path(&doc.path),
+            None => doc
+                .saved_to
+                .clone()
+                .unwrap_or_else(|| edited_path(&doc.path)),
         };
-        doc.document.save_to_file(&target).map_err(pdf_error)?;
+        let name = target
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "document.pdf".into());
+        let part = target.with_file_name(format!("{name}.saving"));
+        let written = doc
+            .document
+            .save_to_file(&part)
+            .map_err(pdf_error)
+            .and_then(|()| {
+                std::fs::rename(&part, &target).with_context(|| {
+                    format!(
+                        "Could not put the saved PDF in place of {} (is it open in another program?)",
+                        target.display()
+                    )
+                })
+            });
+        if let Err(e) = written {
+            let _ = std::fs::remove_file(&part);
+            return Err(e);
+        }
         doc.saved_to = Some(target);
         doc.dirty = false;
         Ok(doc.info())
@@ -2680,6 +2704,12 @@ mod live {
     #[tokio::test]
     #[ignore = "needs pdfium.dll"]
     async fn edits_text_in_a_picture() {
+        if !ocr::available() {
+            // A build machine without a recognition language (a server image) cannot read the
+            // picture; the rest of the PDF engine's tests still run there.
+            println!("skipped: Windows has no text recognition language on this machine");
+            return;
+        }
         let (dll, out) = (env("NOOK_TEST_PDFIUM"), env("NOOK_TEST_OUT"));
         std::fs::create_dir_all(&out).unwrap();
         let pdf = out.join("scanned-form.pdf");
@@ -2931,10 +2961,14 @@ mod live {
         assert_eq!(again.lines[0].text, "9-13-1962");
         assert_eq!(again.font.family, "Arial");
 
-        let saved = editor
-            .save(&doc.id, Some(out.join("scanned-form (edited).pdf")))
-            .await
-            .unwrap();
+        let target = out.join("scanned-form (edited).pdf");
+        let _ = std::fs::remove_file(out.join("scanned-form (edited 2).pdf"));
+        let saved = editor.save(&doc.id, Some(target.clone())).await.unwrap();
+        // Save after Save as writes to the same file again, not a new one beside the original.
+        let again = editor.save(&doc.id, None).await.unwrap();
+        assert_eq!(again.saved_to.as_deref(), Some(target.to_str().unwrap()));
+        assert!(!out.join("scanned-form (edited 2).pdf").exists());
+        assert!(!out.join("scanned-form (edited).pdf.saving").exists());
         for (name, id) in [("before", None), ("after", Some(saved.id.clone()))] {
             let id = match id {
                 Some(id) => id,

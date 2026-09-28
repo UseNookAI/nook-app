@@ -331,6 +331,21 @@ impl Updater {
         }
     }
 
+    /// Everything running that quitting would cut short, in words, each once: the window asks
+    /// before it closes while there is any. One that cannot say is skipped.
+    pub fn busy_all(&self) -> Vec<String> {
+        let works = self.busy.read().clone();
+        let mut all: Vec<String> = Vec::new();
+        for (name, work) in works.iter() {
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| work.busy_with())) {
+                Ok(Some(why)) if !all.contains(&why) => all.push(why),
+                Ok(_) => {}
+                Err(_) => tracing::warn!("Could not ask {name} whether it is busy"),
+            }
+        }
+        all
+    }
+
     /// The first thing running that installing would cut short, or None; one that cannot say is
     /// skipped.
     pub fn busy_with(&self) -> Option<String> {

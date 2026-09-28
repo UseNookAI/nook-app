@@ -110,6 +110,7 @@ pub fn run() {
             commands::app::settings_set,
             commands::app::app_erase_everything,
             commands::app::app_quit,
+            commands::app::app_quit_check,
             commands::app::app_eula,
             commands::app::app_notices,
             commands::update::update_status,

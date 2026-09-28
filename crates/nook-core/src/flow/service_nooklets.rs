@@ -688,12 +688,7 @@ impl FlowService {
             .collect();
         let duration = segments.last().map_or(0.0, |s| s.end);
         let missing = clips.iter().filter(|c| c.is_none()).count();
-        let mut note = (missing > 0).then(|| {
-            format!(
-                "{missing} of {} lines could not be spoken and are left out.",
-                lines.len()
-            )
-        });
+        let mut note = unspoken_note(missing, lines.len());
         let mut track = wav.clone();
         if let Some(ffmpeg) = &facts.ffmpeg {
             let m4a = folder.join(format!("{base}.m4a"));

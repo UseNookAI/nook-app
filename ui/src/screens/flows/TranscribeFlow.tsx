@@ -134,12 +134,15 @@ export function TranscribeFlow({
     const t = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(t);
   }, [recording]);
-  useEffect(
-    () => () => {
-      if (recordingRef.current === "RECORDING") flowsRecordCancel().catch(() => undefined);
-    },
-    [],
-  );
+  // Leaving the page drops a recording in progress, or one still starting.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (recordingRef.current === "RECORDING" || recordingRef.current === "STARTING") flowsRecordCancel().catch(() => undefined);
+    };
+  }, []);
 
   const ready = plan?.ready === true;
   const start = async () => {
@@ -147,6 +150,11 @@ export function TranscribeFlow({
     setRecording("STARTING");
     try {
       await flowsRecordStart();
+      if (!mounted.current) {
+        // The page was left while the microphone started: it must not go on listening.
+        flowsRecordCancel().catch(() => undefined);
+        return;
+      }
       setLevels([]);
       setRecordedAt(Date.now());
       setNow(Date.now());

@@ -114,7 +114,16 @@ and there is no JVM.
   slow for Code.
 - Each turn works in a scratch copy under `<home>\tmp\code` and may run only the commands listed
   under `verify` in the repository's `nook.json` (or a built-in set for its ecosystem). Nothing
-  touches your repository until you press Apply.
+  touches your repository until you press Apply. Links in your folder (symbolic links,
+  junctions) are left out of the copy, so nothing outside it comes in through one.
+- What a check runs is its own code (a test the worker wrote, a build script), so on Windows each
+  check runs sandboxed: a low-integrity process with its privileges dropped, in a job of its own.
+  Windows lets it write only inside the scratch copy and the checks' own caches
+  (`%USERPROFILE%\AppData\LocalLow\Nook\checks`: temporary files, npm, Gradle, Go, pip and Cargo
+  caches), never to your repository, your other files or your registry settings, and keeps it
+  off the clipboard. It still reads what you can and still has the network (a build fetches its
+  packages). A program is found on PATH, never in the scratch copy. For a toolchain that cannot
+  work this way, starting Nook with `NOOK_UNSANDBOXED_CHECKS=1` runs checks as before.
 - With web access on, the worker can search DuckDuckGo and read public pages it was shown, spaced
   out and capped at eight searches a request.
 - Engines come from the pinned llama.cpp, whisper.cpp and stable-diffusion.cpp releases in

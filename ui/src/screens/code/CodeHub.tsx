@@ -5,12 +5,15 @@
  * choose. The local worker does the changes; the person reads them, asks for more, applies or
  * discards.
  */
-import { useSyncExternalStore } from "react";
+import { lazy, Suspense, useSyncExternalStore } from "react";
 import { codeDelete, codeRename } from "../../api/code";
-import { FlowsScreen } from "../flows/FlowsScreen";
-import { IdeScreen } from "../ide/IdeScreen";
 import type { ChatKind } from "../hub/KindSwitch";
-import { VideoScreen } from "../video/VideoScreen";
+
+// The Code editor, the Nooklets and the video studio are loaded the first time they are opened,
+// so the window starts with the chat alone.
+const FlowsScreen = lazy(() => import("../flows/FlowsScreen").then((m) => ({ default: m.FlowsScreen })));
+const IdeScreen = lazy(() => import("../ide/IdeScreen").then((m) => ({ default: m.IdeScreen })));
+const VideoScreen = lazy(() => import("../video/VideoScreen").then((m) => ({ default: m.VideoScreen })));
 import { CodeSessionScreen, CodeStartScreen } from "./CodeSessionScreen";
 import { CodeSidebar } from "./CodeSidebar";
 import { useCodeActions, useCodeSnapshot } from "./useCode";
@@ -102,7 +105,9 @@ export function CodeHub({ isSidebarCollapsed, onSettings }: CodeHubProps) {
         onRename={(id, title) => actions.run(() => codeRename(id, title))}
         onSettings={() => onSettings("general")}
       />
-      <div className="nc-hub__page">{page}</div>
+      <div className="nc-hub__page">
+        <Suspense fallback={null}>{page}</Suspense>
+      </div>
     </div>
   );
 }

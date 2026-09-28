@@ -343,25 +343,28 @@ async fn copy(folder: &Path, dir: &Path) -> Result<Created> {
     })
 }
 
-/// The files of `from` into `dir`, without what [`skipped`] leaves out. A link is copied as what
-/// it points at; a linked folder becomes an empty folder (the original walked without following
-/// links and asked each entry what it pointed at).
+/// The files of `from` into `dir`, without what [`skipped`] leaves out. Links are left out, file
+/// and folder links alike (symbolic links, junctions): a link can point anywhere on the computer,
+/// and what it points at would come into the scratch copy as an ordinary file, past every check
+/// that keeps the worker inside it. Each entry is asked what it is itself, never what it points
+/// at, and only plain files and folders are copied.
 fn copy_files(from: &Path, dir: &Path) -> Result<()> {
     let walk = walkdir::WalkDir::new(from)
         .follow_links(false)
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !skipped_folder(e.file_name()));
+        .filter_entry(|e| e.depth() == 0 || !(skipped_folder(e.file_name()) || is_link(e)));
     for e in walk {
         let e = e?;
         let rel = e.path().strip_prefix(from).unwrap_or(e.path());
-        if rel.as_os_str().is_empty() || skipped(rel) {
+        if rel.as_os_str().is_empty() || skipped(rel) || !inside(rel) || is_link(&e) {
             continue;
         }
         let to = dir.join(rel);
         let f = e.path();
-        if f.is_dir() {
+        let kind = e.file_type();
+        if kind.is_dir() {
             std::fs::create_dir_all(&to)?;
-        } else if f.is_file() {
+        } else if kind.is_file() {
             if let Some(parent) = to.parent() {
                 std::fs::create_dir_all(parent)?;
             }
@@ -369,6 +372,21 @@ fn copy_files(from: &Path, dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether a walked entry is a link Windows follows by name: a symbolic link to a file or a
+/// folder, or a junction (`FileType::is_symlink` covers all three on Windows), asked of the entry
+/// itself.
+fn is_link(e: &walkdir::DirEntry) -> bool {
+    e.path_is_symlink()
+        || e.file_type().is_symlink()
+        || std::fs::symlink_metadata(e.path()).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Whether a relative path stays below its root: no `..`, no root or drive of its own.
+fn inside(rel: &Path) -> bool {
+    rel.components()
+        .all(|c| matches!(c, std::path::Component::Normal(_)))
 }
 
 /// Deletes a folder tree (or a file); git marks its objects read-only, which Windows will not
@@ -881,6 +899,49 @@ pub(crate) mod tests {
         assert!(!dir.exists());
         assert!(!tmp.path().join("scratch").join("s1.git").exists());
         assert!(!folder.join(".git").exists());
+    }
+
+    /// A link in the person's folder, to a file or a folder outside it, never brings what it
+    /// points at into the scratch copy.
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn links_in_the_folder_are_left_out_of_the_copy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let outside = tmp.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("secret.txt"), "the key\n").unwrap();
+        let folder = tmp.path().join("project");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(folder.join("app.py"), "print('hi')\n").unwrap();
+        // A junction needs no privilege; a file link needs Developer Mode or an administrator.
+        let junction = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(folder.join("linked"))
+            .arg(&outside)
+            .output()
+            .unwrap();
+        assert!(junction.status.success(), "{junction:?}");
+        let file_link =
+            std::os::windows::fs::symlink_file(outside.join("secret.txt"), folder.join("key.txt"))
+                .is_ok();
+
+        let dir = tmp.path().join("scratch").join("s3");
+        create(&folder, &dir).await.unwrap();
+        assert!(dir.join("app.py").is_file());
+        assert!(!dir.join("linked").exists(), "a folder link is not copied");
+        assert!(!dir.join("linked").join("secret.txt").exists());
+        if file_link {
+            assert!(!dir.join("key.txt").exists(), "a file link is not copied");
+        }
+        remove(&folder, &dir).await;
+    }
+
+    #[test]
+    fn a_path_below_its_root_stays_there() {
+        assert!(inside(Path::new("src/main.rs")));
+        assert!(!inside(Path::new("../outside")));
+        assert!(!inside(Path::new("src/../../x")));
+        assert!(!inside(Path::new("C:\\Windows")));
     }
 
     #[tokio::test]

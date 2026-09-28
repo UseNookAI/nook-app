@@ -55,6 +55,13 @@ pub fn app_quit(app: tauri::AppHandle) {
     app.exit(0);
 }
 
+/// What quitting now would cut short or lose, in words ("a PDF has changes that are not saved
+/// yet", "a flow is running"): the window asks before it closes while there is any.
+#[tauri::command]
+pub fn app_quit_check(state: State<'_, AppState>) -> Vec<String> {
+    state.0.updater.busy_all()
+}
+
 /// The software licence for Settings › About (resources/eula.html), a complete HTML document.
 #[tauri::command]
 pub fn app_eula() -> &'static str {

@@ -70,6 +70,9 @@ export interface Segment {
   end: number;
   text: string;
   translation: string | null;
+  /** Where the translation is heard in the dubbed track, once it is made (the track's own timeline). */
+  spokenStart?: number;
+  spokenEnd?: number;
 }
 
 /** FlowService.Run: one run, queued, working or done. The service replaces it as it moves on. */

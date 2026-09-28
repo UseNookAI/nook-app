@@ -220,6 +220,12 @@ impl VerifyCommands {
         } else {
             parts[0] = program(&parts[0]);
         }
+        // What the command then does is its own code (a test the worker wrote, a build script):
+        // Windows keeps its writes inside the scratch copy (see super::sandbox).
+        #[cfg(windows)]
+        if super::sandbox::enabled() {
+            return run_sandboxed(&parts, cwd, env, limit).await;
+        }
         let mut cmd = crate::process::command(&parts[0]);
         cmd.args(&parts[1..])
             .current_dir(cwd)
@@ -277,6 +283,94 @@ impl VerifyCommands {
             seconds: started.elapsed().as_secs(),
         })
     }
+}
+
+/// The scratch copies labelled for sandboxed checks in this run of Nook.
+#[cfg(windows)]
+static PREPARED: Lazy<Mutex<std::collections::HashSet<std::path::PathBuf>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Runs a command as a sandboxed check ([`super::sandbox`]): a low-integrity process in a job of
+/// its own, writing only inside `cwd` and the checks' caches. The same results as an ordinary
+/// run: the exit code and the tail of what it printed, a time limit, the job stopped when the
+/// worker is.
+#[cfg(windows)]
+async fn run_sandboxed(
+    parts: &[String],
+    cwd: &Path,
+    env: &HashMap<String, String>,
+    limit: Duration,
+) -> Result<VerifyResult> {
+    use super::sandbox;
+    use std::collections::BTreeMap;
+
+    let dir = cwd.to_path_buf();
+    if !PREPARED.lock().contains(&dir) {
+        let d = dir.clone();
+        tokio::task::spawn_blocking(move || sandbox::prepare(&d))
+            .await
+            .map_err(|e| anyhow!("{e}"))??;
+        PREPARED.lock().insert(dir);
+    }
+    // Nook's environment with the command's own on top (names without regard to case, as
+    // Windows has them), then the sandbox's temporary and cache folders.
+    let mut all: BTreeMap<String, String> = std::env::vars().collect();
+    let set = |all: &mut BTreeMap<String, String>, k: &str, v: &str| {
+        all.retain(|name, _| !name.eq_ignore_ascii_case(k));
+        all.insert(k.to_string(), v.to_string());
+    };
+    for (k, v) in env {
+        set(&mut all, k, v);
+    }
+    for (k, v) in sandbox::environment(&all) {
+        set(&mut all, &k, &v);
+    }
+    let started = Instant::now();
+    let mut child = sandbox::spawn(&parts[0], &parts[1..], cwd, &all)?;
+    let output = Arc::new(Mutex::new(Tail::default()));
+    let mut readers = Vec::new();
+    if let Some(out) = child.stdout.take() {
+        readers.push(tokio::spawn(collect(
+            tokio::fs::File::from_std(out),
+            output.clone(),
+        )));
+    }
+    if let Some(err) = child.stderr.take() {
+        readers.push(tokio::spawn(collect(
+            tokio::fs::File::from_std(err),
+            output.clone(),
+        )));
+    }
+    let code = match tokio::time::timeout(limit, child.wait()).await {
+        Ok(code) => code?,
+        Err(_) => {
+            child.kill();
+            readers.iter().for_each(|r| r.abort());
+            return Ok(VerifyResult {
+                exit_code: -1,
+                output: format!(
+                    "the command ran for more than {} seconds and was stopped",
+                    limit.as_secs()
+                ),
+                seconds: started.elapsed().as_secs(),
+            });
+        }
+    };
+    child.disarm();
+    // What is still in the pipes; a grandchild that holds them open gets five seconds.
+    let _ = tokio::time::timeout(Duration::from_secs(5), async {
+        for r in readers.iter_mut() {
+            let _ = r.await;
+        }
+    })
+    .await;
+    readers.iter().for_each(|r| r.abort());
+    let text = output.lock().text();
+    Ok(VerifyResult {
+        exit_code: code,
+        output: text,
+        seconds: started.elapsed().as_secs(),
+    })
 }
 
 fn from_nook_json(root: &Path) -> Option<VerifyCommands> {

@@ -9,8 +9,9 @@
 
     1. checks out the commit into a clean worktree under %TEMP%, so uncommitted work never ships,
     2. checks that the build will believe the key that signs for the site,
-    3. with -Test, runs the checks there (rustfmt, clippy, the Rust and UI tests, the typecheck) and
-       publishes nothing if one fails,
+    3. with -Test, runs the checks there (rustfmt, clippy, the Rust and UI tests, the typecheck, the
+       PDF engine's tests with the pinned PDFium, tools\test-pdf.ps1) and publishes nothing if one
+       fails,
     4. builds the NSIS installer there with the next version number, stamped with the site's base
        so the build follows it (NOOK_RS_UPDATE_BASE),
     5. copies it to <site>/builds/<version>-<commit>/Nook-<version>.exe,
@@ -166,12 +167,15 @@ try {
     Invoke-InTree 'npm ci' 'npm ci --no-audit --no-fund && npm --prefix ui ci --no-audit --no-fund'
 
     if ($Test) {
-      Step "Testing: rustfmt, clippy, the Rust tests, the UI typecheck and tests (a few minutes)"
+      Step "Testing: rustfmt, clippy, the Rust tests, the UI typecheck and tests, the PDF engine (a few minutes)"
       Invoke-InTree 'rustfmt' 'cargo fmt --all -- --check'
       Invoke-InTree 'The UI typecheck' 'npm --prefix ui run typecheck'
       Invoke-InTree 'The UI tests' 'npm --prefix ui test'
       Invoke-InTree 'clippy' 'cargo clippy --workspace --all-targets -- -D warnings'
       Invoke-InTree 'The Rust tests' 'cargo test --workspace'
+      # The PDF editor's tests with the pinned PDFium, kept beside the build between runs.
+      & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $worktree 'tools\test-pdf.ps1') -Cache (Join-Path $target 'test-engines') -Out (Join-Path $target 'test-pdf')
+      if ($LASTEXITCODE -ne 0) { throw "The PDF engine's tests failed (exit code $LASTEXITCODE), so nothing was published" }
     }
 
     Step "Building the installer (a few minutes)"

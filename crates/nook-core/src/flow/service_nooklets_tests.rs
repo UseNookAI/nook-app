@@ -68,9 +68,11 @@ impl FlowRuntime for Scripted {
     }
 }
 
-/// A tone per line, and what it was asked.
+/// A tone per line, and what it was asked; a line with one of `skips`' words in it is skipped
+/// as many times as that says (an engine that chokes on a word).
 struct Voice1 {
     asked: Mutex<Vec<(String, bool, Vec<String>)>>,
+    skips: Mutex<Vec<(&'static str, usize)>>,
 }
 
 #[async_trait]
@@ -89,6 +91,17 @@ impl Speaker for Voice1 {
         std::fs::create_dir_all(&r.out_dir)?;
         let mut out = Vec::new();
         for (i, l) in r.lines.iter().enumerate() {
+            let skipped = self
+                .skips
+                .lock()
+                .iter_mut()
+                .find(|(word, left)| *left > 0 && l.text.contains(word))
+                .map(|s| s.1 -= 1)
+                .is_some();
+            if skipped {
+                out.push(None);
+                continue;
+            }
             let wav = r.out_dir.join(format!("{}.wav", l.id));
             write_tone(&wav, r.voice.sample_rate, 1, 0.5, 220.0);
             out.push(Some(wav));
@@ -179,6 +192,7 @@ fn rig() -> Rig {
     std::fs::write(voices_dir.join("tonic.gguf"), b"gguf").unwrap();
     let speaker = Arc::new(Voice1 {
         asked: Mutex::new(Vec::new()),
+        skips: Mutex::new(Vec::new()),
     });
     let service = FlowService::new(
         runtime.clone(),
@@ -526,4 +540,39 @@ async fn a_look_before_a_run_tells_the_language_and_the_words() {
     );
     rig.docs.pandoc_in.store(true, Ordering::SeqCst);
     assert_eq!(rig.service.peek(&PlanInput::File(doc)).await.words, 11);
+}
+
+#[tokio::test]
+async fn a_line_the_voice_skips_is_asked_for_again_and_one_it_never_speaks_is_said() {
+    let rig = rig();
+    *rig.voice.skips.lock() = vec![("hiccup", 1), ("never", 9)];
+    let o = Order {
+        language: Some("en".into()),
+        ..order(READ_ALOUD)
+    };
+    let text = "A line with a hiccup in it.\n\nA line it will never say.\n\nA plain line.";
+    let run = rig
+        .service
+        .submit_for(&PlanInput::Text(text.into()), &o)
+        .unwrap();
+    let done = finished(&rig.service, &run.id).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let asked = rig.voice.asked.lock().clone();
+    assert_eq!(asked.len(), 2, "once for all, once more for the skipped");
+    assert_eq!(
+        asked[1].2,
+        vec![
+            "A line with a hiccup in it.".to_string(),
+            "A line it will never say.".to_string()
+        ]
+    );
+    assert_eq!(
+        done.segments.len(),
+        2,
+        "the hiccup came back; the other is silent"
+    );
+    assert_eq!(
+        done.note.as_deref(),
+        Some("1 of 3 lines could not be spoken, so it is silent in the track.")
+    );
 }

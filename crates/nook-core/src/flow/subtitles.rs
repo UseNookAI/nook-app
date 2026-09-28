@@ -5,7 +5,10 @@
 use serde::{Deserialize, Serialize};
 
 /// One stretch of speech: where it starts and ends in the track (seconds), what was said, and
-/// what that is in the target language once translated (None before).
+/// what that is in the target language once translated (None before). `spoken_start` and
+/// `spoken_end` are where the translation is heard in the dubbed track, once it is made: a line
+/// moves when the one before it ran long, and a recording's lines are laid one after the other,
+/// so the translated subtitles follow the dubbed track, not the original.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Segment {
@@ -13,6 +16,10 @@ pub struct Segment {
     pub end: f64,
     pub text: String,
     pub translation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spoken_start: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub spoken_end: Option<f64>,
 }
 
 impl Segment {
@@ -22,6 +29,8 @@ impl Segment {
             end,
             text: text.into(),
             translation: None,
+            spoken_start: None,
+            spoken_end: None,
         }
     }
 
@@ -44,6 +53,7 @@ impl Segment {
 }
 
 /// SubRip: numbered cues with "HH:MM:SS,mmm --> HH:MM:SS,mmm" and the text, a blank line between.
+/// The translation's cues are timed as it is heard in the dubbed track when there is one.
 pub fn srt(segments: &[Segment], translated: bool) -> String {
     let mut out = String::new();
     let mut n = 1;
@@ -51,10 +61,14 @@ pub fn srt(segments: &[Segment], translated: bool) -> String {
         let Some(line) = s.line(translated) else {
             continue;
         };
+        let (start, end) = match (translated, s.spoken_start, s.spoken_end) {
+            (true, Some(a), Some(b)) => (a, b),
+            _ => (s.start, s.end),
+        };
         out.push_str(&format!(
             "{n}\n{} --> {}\n{line}\n\n",
-            timestamp(s.start),
-            timestamp(s.end)
+            timestamp(start),
+            timestamp(end)
         ));
         n += 1;
     }
@@ -175,6 +189,19 @@ mod tests {
         );
         assert_eq!(plain(&segments, false), "Hello.\nBye.\n");
         assert_eq!(timestamp(-1.0), "00:00:00,000");
+
+        // Once dubbed, the translation's cues follow the dubbed track; the original's stay.
+        let mut moved = segments[0].clone();
+        moved.spoken_start = Some(0.3);
+        moved.spoken_end = Some(2.1);
+        assert_eq!(
+            srt(&[moved.clone()], true),
+            "1\n00:00:00,300 --> 00:00:02,100\nHallo.\n\n"
+        );
+        assert_eq!(
+            srt(&[moved], false),
+            "1\n00:00:00,000 --> 00:00:01,500\nHello.\n\n"
+        );
     }
 
     #[test]

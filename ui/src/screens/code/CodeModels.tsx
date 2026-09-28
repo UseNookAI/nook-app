@@ -154,13 +154,16 @@ export function SpeechButton({ enabled, onText, onError }: { enabled: boolean; o
     [],
   );
 
-  // Leaving the screen mid-recording drops the recording.
-  useEffect(
-    () => () => {
+  // Leaving the screen mid-recording drops the recording; one still starting drops itself when
+  // it comes back to no screen.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
       if (stateRef.current === "RECORDING") speechCancel().catch(() => undefined);
-    },
-    [],
-  );
+    };
+  }, []);
 
   const start = async () => {
     try {
@@ -177,6 +180,10 @@ export function SpeechButton({ enabled, onText, onError }: { enabled: boolean; o
     }
     try {
       await speechStart();
+      if (!mounted.current) {
+        speechCancel().catch(() => undefined);
+        return;
+      }
       set("RECORDING");
     } catch (e) {
       onError(messageOf(e) || "The microphone could not start.");

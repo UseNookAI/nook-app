@@ -5,7 +5,7 @@
  */
 import { useSyncExternalStore } from "react";
 import { Icon } from "../../components/Icon";
-import { FlowMemory } from "../flows/FlowsScreen";
+import { FlowMemory } from "../flows/memory";
 import { CodeMemory } from "./CodeHub";
 
 type Page = "chat" | "code" | "flows";

@@ -1,6 +1,8 @@
 /**
  * "Quit Nook?" (NookAgentApplication.App): asked when the window closes while model downloads or
- * the update download run. Downloads carry on in the background; a running update download stops.
+ * the update download run, and (new here) while anything would be lost or stopped: edited files
+ * or PDFs not saved, a Nooklet or a render running (`reasons`). Downloads carry on in the
+ * background; a running update download stops.
  */
 import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
@@ -16,7 +18,24 @@ export function quitMessage(busy: readonly string[]): string {
   return "Model downloads continue in the background. If unfinished, click download to resume.";
 }
 
-export function QuitDialog({ busy, onDismiss, onConfirm }: { busy: readonly string[]; onDismiss: () => void; onConfirm: () => void }) {
+/** "A PDF has changes…": the core's and the pages' words, each starting with a capital. */
+export function reasonText(reason: string): string {
+  return reason.charAt(0).toUpperCase() + reason.slice(1);
+}
+
+export function QuitDialog({
+  busy,
+  reasons = [],
+  onDismiss,
+  onConfirm,
+}: {
+  busy: readonly string[];
+  /** What quitting would lose or stop, in words. */
+  reasons?: readonly string[];
+  onDismiss: () => void;
+  onConfirm: () => void;
+}) {
+  const losing = reasons.length > 0;
   return (
     <Dialog
       title="Quit Nook?"
@@ -24,11 +43,21 @@ export function QuitDialog({ busy, onDismiss, onConfirm }: { busy: readonly stri
       actions={
         <>
           <Button text="Cancel" variant="ghost" onClick={onDismiss} />
-          <Button text="Quit" variant="primary" onClick={onConfirm} />
+          <Button text={losing ? "Quit anyway" : "Quit"} variant={losing ? "danger" : "primary"} onClick={onConfirm} />
         </>
       }
     >
-      {quitMessage(busy)}
+      {losing && (
+        <>
+          <div>If you quit now:</div>
+          <ul className="nk-quit__reasons">
+            {reasons.map((r) => (
+              <li key={r}>{reasonText(r)}.</li>
+            ))}
+          </ul>
+        </>
+      )}
+      {busy.length > 0 && quitMessage(busy)}
     </Dialog>
   );
 }

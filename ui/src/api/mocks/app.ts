@@ -56,6 +56,7 @@ export function registerAppMocks(): void {
     Object.assign(settings, DEFAULTS);
   });
   mock("app_quit", () => console.info("[browser] app_quit: the app would exit here"));
+  mock("app_quit_check", () => (new URLSearchParams(window.location.search).get("quit") === "busy" ? ["a PDF has changes that are not saved yet"] : []));
   mock("app_eula", () =>
     document(
       "Nook software licence",

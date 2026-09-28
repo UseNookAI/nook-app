@@ -1,6 +1,9 @@
-# Every push and pull request: the Rust and UI checks on Windows, then the installer as an artifact.
-# The same checks run locally in tools/pipeline.ps1 (tools/publish.ps1 -Test) before a build is
-# published to an update feed.
+# Every push and pull request: the Rust and UI checks on Windows, the PDF engine's tests with the
+# pinned PDFium, then the installer as an artifact. The same checks run locally in
+# tools/pipeline.ps1 (tools/publish.ps1 -Test) before a build is published to an update feed.
+#
+# One command a step: a step's shell reports only its last command's exit code, so a failing test
+# followed by a build that works would pass.
 name: CI
 
 on:
@@ -39,16 +42,22 @@ jobs:
             ui/package-lock.json
 
       - name: Install npm packages
-        run: |
-          npm ci
-          npm --prefix ui ci
+        run: npm ci
 
-      - name: UI typecheck, tests and build
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
+
+      - name: UI typecheck
         working-directory: ui
-        run: |
-          npm run typecheck
-          npm test
-          npm run build
+        run: npm run typecheck
+
+      - name: UI tests
+        working-directory: ui
+        run: npm test
+
+      - name: UI build
+        working-directory: ui
+        run: npm run build
 
       - name: Rust format
         run: cargo fmt --all -- --check
@@ -59,9 +68,28 @@ jobs:
       - name: Rust tests
         run: cargo test --workspace
 
+  pdf:
+    name: PDF engine
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/nook-test-engines
+          key: pdfium-${{ hashFiles('resources/runtime/engines.json') }}
+
+      - name: The PDF editor's tests with PDFium
+        shell: pwsh
+        run: ./tools/test-pdf.ps1 -Cache "${{ runner.temp }}/nook-test-engines" -Out "${{ runner.temp }}/nook-test-pdf"
+
   bundle:
     name: Installer
-    needs: check
+    needs: [check, pdf]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -79,9 +107,10 @@ jobs:
             ui/package-lock.json
 
       - name: Install npm packages
-        run: |
-          npm ci
-          npm --prefix ui ci
+        run: npm ci
+
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
 
       - name: Build the installer
         env:

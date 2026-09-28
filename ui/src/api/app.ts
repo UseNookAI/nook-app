@@ -32,6 +32,8 @@ export const settingsSet = (name: string, value: string) => call<void>("settings
 /** Settings back to defaults and the log emptied (NookAgentService.nukeInstance). Quit afterwards. */
 export const eraseEverything = () => call<void>("app_erase_everything");
 export const quit = () => call<void>("app_quit");
+/** What quitting now would cut short or lose, in words, from the core (an edited PDF, a running Nooklet). */
+export const quitCheck = () => call<string[]>("app_quit_check");
 
 /** The software licence (resources/eula.html), a complete HTML document. */
 export const appEula = () => call<string>("app_eula");

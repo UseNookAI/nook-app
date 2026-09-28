@@ -26,6 +26,7 @@ pub mod layout;
 pub mod ocr;
 pub mod raster;
 pub mod setup;
+pub mod undo;
 
 pub use editor::{
     Align, Area, Block, BlockFont, BlockLine, PdfDoc, PdfEditor, PdfPageInfo, Pick, Replaced,

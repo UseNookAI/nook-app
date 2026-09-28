@@ -492,48 +492,69 @@ function PageView({
   const height = page.height * scale;
   const box = useRef<HTMLDivElement>(null);
   const img = useRef<HTMLImageElement>(null);
-  const [visible, setVisible] = useState(index < 2);
+  const [near, setNear] = useState(index < 2);
   const [src, setSrc] = useState<string | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  // The page being edited keeps its picture, wherever it is scrolled.
+  const visible = near || editing != null;
 
+  // Only pages near the screen hold a picture: one scrolled far away lets its picture go (and is
+  // drawn again when it comes back), so a long PDF holds a few pages' pictures, not all it has
+  // shown, and a zoom redraws only those.
   useEffect(() => {
     const el = box.current;
     if (!el) return;
-    const o = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && setVisible(true)), { rootMargin: "900px 0px" });
+    // Measured against the PDF's own scroll area, so the margin reaches the pages it hides.
+    const root = el.closest(".pdf-scroll");
+    const o = new IntersectionObserver((entries) => entries.forEach((e) => setNear(e.isIntersecting)), {
+      root,
+      rootMargin: "1200px 0px",
+    });
     o.observe(el);
     return () => o.disconnect();
   }, []);
 
-  // Drawn at the screen's own resolution, again after an edit or a zoom (a moment after it settles).
+  // The picture shown now, to let it go when it is replaced, dropped or the page unmounts.
+  const shown = useRef<string | null>(null);
+  const show = useCallback((u: string | null) => {
+    const old = shown.current;
+    shown.current = u;
+    setSrc(u);
+    // A moment later, so the <img> has moved on to the new picture first.
+    if (old) window.setTimeout(() => URL.revokeObjectURL(old), 1000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (shown.current) URL.revokeObjectURL(shown.current);
+      shown.current = null;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (!visible) show(null);
+  }, [visible, show]);
+
+  // Drawn at the screen's own resolution, again after an edit or a zoom (a moment after it
+  // settles). A drawing that comes back after the page moved on (scrolled away, zoomed again) is
+  // let go at once.
   useEffect(() => {
     if (!visible) return;
     let alive = true;
-    let url: string | null = null;
     const pixels = Math.min(3200, Math.round(width * (window.devicePixelRatio || 1)));
     const t = window.setTimeout(() => {
       pdfRender(doc.id, index, pixels).then(
         (u) => {
-          if (!alive) {
-            URL.revokeObjectURL(u);
-            return;
-          }
-          url = u;
-          setSrc((old) => {
-            if (old) window.setTimeout(() => URL.revokeObjectURL(old), 1000);
-            return u;
-          });
+          if (!alive) URL.revokeObjectURL(u);
+          else show(u);
         },
         () => undefined,
       );
-    }, src ? 120 : 0);
+    }, shown.current ? 120 : 0);
     return () => {
       alive = false;
       window.clearTimeout(t);
-      void url;
     };
-    // `src` is read only to know whether this is the first drawing.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, doc.id, index, page.version, width]);
+  }, [visible, doc.id, index, page.version, width, show]);
 
   useEffect(() => () => onImage(null), [onImage]);
 

@@ -28,6 +28,7 @@ import {
   type IdePrefs,
 } from "../../api/ide";
 import { baseName } from "../../components/paths";
+import { registerLeaveCheck } from "../../shell/unsaved";
 import { createEditor, type EditorHandle } from "./EditorHost";
 import {
   isUnder,
@@ -550,6 +551,9 @@ export class IdeWorkspace {
 }
 
 let memory: IdeWorkspace | null = null;
+
+// Closing the window asks about edited files, from whatever page is open.
+registerLeaveCheck("code", () => (memory ? memory.dirtyTabs().map((t) => `${t.name} has changes that are not saved yet`) : []));
 
 /** The one workspace, made on the first visit to the Code page and kept for the app's life (IdeMemory). */
 export function ideWorkspace(): IdeWorkspace {

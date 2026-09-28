@@ -236,15 +236,28 @@ pub fn to_speech_wav(
                 );
             };
             tracing::info!("Reading {} with FFmpeg ({e:#})", display_name(input));
-            convert_with_ffmpeg(ffmpeg, input, out)?;
+            if let Err(e) = convert_with_ffmpeg(ffmpeg, input, out, cancel) {
+                let _ = std::fs::remove_file(out);
+                return Err(e);
+            }
         }
     }
     wav_seconds(out)
 }
 
-/// FFmpeg's conversion to 16 kHz mono 16-bit WAV.
-fn convert_with_ffmpeg(ffmpeg: &Path, input: &Path, out: &Path) -> Result<()> {
-    let output = crate::process::std_command(ffmpeg)
+/// How long FFmpeg may take to read a file's sound: a feature-length film on a slow disk.
+const FFMPEG_LIMIT: std::time::Duration = std::time::Duration::from_secs(2 * 3600);
+
+/// FFmpeg's conversion to 16 kHz mono 16-bit WAV. FFmpeg is Nook's child in its kill-on-close
+/// job, and when the run is stopped (or it runs past [`FFMPEG_LIMIT`]) it is killed and waited
+/// for before this returns, so nothing is left writing to the run's files as they are removed.
+fn convert_with_ffmpeg(
+    ffmpeg: &Path,
+    input: &Path,
+    out: &Path,
+    cancel: &CancellationToken,
+) -> Result<()> {
+    let mut child = crate::process::std_command(ffmpeg)
         .args(["-y", "-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
         .arg(input)
         .args([
@@ -259,16 +272,49 @@ fn convert_with_ffmpeg(ffmpeg: &Path, input: &Path, out: &Path) -> Result<()> {
             "wav",
         ])
         .arg(out)
-        .output()
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .with_context(|| format!("Could not start FFmpeg ({})", ffmpeg.display()))?;
-    if !output.status.success() {
-        let why = String::from_utf8_lossy(&output.stderr);
+    crate::process::adopt_std(&child);
+    // What FFmpeg says, read on the side so a full pipe never stalls it.
+    let reader = child.stderr.take().map(|mut err| {
+        std::thread::spawn(move || {
+            let mut text = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut err, &mut text);
+            text
+        })
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if cancel.is_cancelled() || started.elapsed() > FFMPEG_LIMIT {
+            let _ = child.kill();
+            let _ = child.wait();
+            // The reader ends when the pipe closes; one of FFmpeg's own children could hold it
+            // open, so it is not waited for.
+            drop(reader);
+            if cancel.is_cancelled() {
+                return Err(Stopped.into());
+            }
+            bail!(
+                "FFmpeg took over two hours reading {} and was stopped.",
+                display_name(input)
+            );
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    };
+    let stderr = reader.and_then(|r| r.join().ok()).unwrap_or_default();
+    if !status.success() {
+        let why = String::from_utf8_lossy(&stderr);
         let last = why.trim().lines().last().unwrap_or("").trim().to_string();
         bail!(
             "FFmpeg could not read {}{}",
             display_name(input),
             if last.is_empty() {
-                format!(" (exit {}).", output.status.code().unwrap_or(-1))
+                format!(" (exit {}).", status.code().unwrap_or(-1))
             } else {
                 format!(": {last}")
             }
@@ -723,6 +769,30 @@ pub(crate) mod tests {
         let down = resample(&pcm, 16_000);
         assert_eq!(down.rate, 16_000);
         assert!((down.seconds() - 2.0).abs() < 0.01);
+    }
+
+    /// Stopping a run stops an FFmpeg that is still reading, at once, not when it finishes.
+    #[cfg(windows)]
+    #[test]
+    fn a_stopped_run_stops_ffmpeg() {
+        let dir = tempfile::tempdir().unwrap();
+        let input = dir.path().join("talk.opus");
+        std::fs::write(&input, b"OggS not really").unwrap();
+        // An "FFmpeg" that takes half a minute over anything.
+        let slow = dir.path().join("ffmpeg.cmd");
+        std::fs::write(&slow, "@ping -n 30 127.0.0.1 >nul\r\n").unwrap();
+        let cancel = CancellationToken::new();
+        let stop = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            stop.cancel();
+        });
+        let started = std::time::Instant::now();
+        let out = dir.path().join("a.wav");
+        let err = to_speech_wav(&input, &out, Some(&slow), &cancel).unwrap_err();
+        assert!(err.is::<Stopped>(), "{err:#}");
+        assert!(started.elapsed().as_secs() < 5, "{:?}", started.elapsed());
+        assert!(!out.exists());
     }
 
     #[test]

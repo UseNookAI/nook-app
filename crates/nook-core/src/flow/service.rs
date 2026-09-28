@@ -1062,8 +1062,9 @@ impl FlowService {
             }
         };
         // The scratch work goes before the run reads as ended, so whoever sees it ended finds
-        // it gone.
-        let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(work)).await;
+        // it gone. A child that was stopped with the run (FFmpeg, the voice engine) may hold its
+        // files for a moment after it is killed, so a removal that fails is tried again.
+        let _ = tokio::task::spawn_blocking(move || remove_soon(&work)).await;
         self.runs.lock().insert(id.to_string(), after);
         self.stops.lock().remove(id);
         self.changed(id);
@@ -1129,7 +1130,7 @@ impl FlowService {
 
         // Translate.
         let mut model_id = run.model_id.clone();
-        let translated: Vec<Segment> = if from.as_deref() == Some(target.as_str()) {
+        let mut translated: Vec<Segment> = if from.as_deref() == Some(target.as_str()) {
             heard
                 .iter()
                 .map(|s| s.with_translation(s.text.clone()))
@@ -1207,9 +1208,16 @@ impl FlowService {
                     Source::File => Layout::Timeline,
                 };
                 let out = folder.join(format!("{base}.{target}.wav"));
-                {
+                let placed = {
                     let (lines, clips, out) = (translated.clone(), spoken.clips, out.clone());
-                    blocking(move || dub::assemble(&lines, &clips, layout, duration, &out)).await?;
+                    blocking(move || dub::assemble(&lines, &clips, layout, duration, &out)).await?
+                };
+                // The translated text and subtitles follow the track as it was laid out.
+                for p in &placed {
+                    if let Some(s) = translated.get_mut(p.index) {
+                        s.spoken_start = Some(p.start);
+                        s.spoken_end = Some(p.start + p.seconds);
+                    }
                 }
                 if audio::is_video(&input) {
                     if let Some(ffmpeg) = &facts.ffmpeg {
@@ -1423,10 +1431,15 @@ impl FlowService {
                 (spoken, standard, Some(note))
             }
         };
+        let missing = spoken.iter().filter(|c| c.is_none()).count();
         let mut clips = vec![None; lines.len()];
         for (j, clip) in spoken.into_iter().enumerate() {
             clips[line_of[j]] = clip;
         }
+        let note = match (note, unspoken_note(missing, line_of.len())) {
+            (Some(a), Some(b)) => Some(format!("{a} {b}")),
+            (a, b) => a.or(b),
+        };
         Ok(Spoken {
             clips,
             choice: used,
@@ -1462,13 +1475,67 @@ impl FlowService {
         };
         let total = request.lines.len();
         self.stage(id, Stage::Speaking, 0, total);
-        speaker
+        let mut clips = speaker
             .speak(
                 request,
                 &|d, t| self.stage(id, Stage::Speaking, d, t),
                 cancel,
             )
-            .await
+            .await?;
+        // A line the engine skipped (a hiccup, a word it choked on) is asked for once more; what
+        // is still missing then is left for the caller to say.
+        let missing: Vec<usize> = (0..clips.len()).filter(|&i| clips[i].is_none()).collect();
+        if !missing.is_empty() {
+            tracing::info!(
+                "Run {id}: asking the voice again for {} of {total} lines",
+                missing.len()
+            );
+            let name = request
+                .out_dir
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "spoken".into());
+            let again = Request {
+                lines: missing.iter().map(|&i| request.lines[i].clone()).collect(),
+                out_dir: request.out_dir.with_file_name(format!("{name}-again")),
+                ..request.clone()
+            };
+            let before = total - missing.len();
+            let more = speaker
+                .speak(
+                    &again,
+                    &|d, _| self.stage(id, Stage::Speaking, before + d, total),
+                    cancel,
+                )
+                .await;
+            match more {
+                Ok(more) => {
+                    for (k, &i) in missing.iter().enumerate() {
+                        if let Some(Some(wav)) = more.get(k) {
+                            clips[i] = Some(wav.clone());
+                        }
+                    }
+                }
+                Err(e) if e.is::<Stopped>() || cancel.is_cancelled() => return Err(e),
+                Err(e) => tracing::warn!("Run {id}: the voice spoke none of them again: {e:#}"),
+            }
+        }
+        self.stage(id, Stage::Speaking, total, total);
+        Ok(clips)
+    }
+}
+
+/// What the person reads about lines the voice could not speak, or None when it spoke them all.
+pub(super) fn unspoken_note(missing: usize, total: usize) -> Option<String> {
+    match missing {
+        0 => None,
+        n if n == total => Some("The voice could not speak any of the lines.".into()),
+        1 => Some(format!(
+            "1 of {total} lines could not be spoken, so it is silent in the track."
+        )),
+        n => Some(format!(
+            "{n} of {total} lines could not be spoken, so they are silent in the track."
+        )),
     }
 }
 
@@ -1530,6 +1597,19 @@ async fn work(
         let Some(service) = me.upgrade() else { break };
         service.execute(&id).await;
     }
+}
+
+/// Removes a run's scratch folder, trying again for up to three seconds while Windows still has
+/// a file in it open.
+fn remove_soon(dir: &Path) {
+    for _ in 0..30 {
+        match std::fs::remove_dir_all(dir) {
+            Ok(()) => return,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return,
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+    tracing::warn!("Could not remove {}", dir.display());
 }
 
 /// What listening still needs: the speech model (with its engine), or the engine alone.

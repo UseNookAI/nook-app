@@ -536,7 +536,13 @@ pub struct RuntimeManager {
     refused: Mutex<HashMap<String, Refusal>>,
     recent_events: Mutex<VecDeque<RuntimeEvent>>,
     placement: tokio::sync::Mutex<()>,
-    image_lock: tokio::sync::Mutex<()>,
+    /// The card's arbiter. What takes the card whole (an image, a clip, the flows' voice engine)
+    /// holds it exclusively for as long as it works; loading a text or speech engine shares it,
+    /// so nothing new lands on the card while one of those runs, and one of those waits for the
+    /// loads under way. Engines already resident keep answering. Always taken before
+    /// `placement`, never after, so the two cannot wait on each other. Fair: a turn waiting to
+    /// start is not overtaken by loads that come after it.
+    gpu: tokio::sync::RwLock<()>,
     downloads: Mutex<BTreeMap<String, f64>>,
     download_workers: Arc<Semaphore>,
     hub_cancels: Mutex<HashMap<String, CancellationToken>>,
@@ -581,7 +587,7 @@ impl RuntimeManager {
             refused: Mutex::new(HashMap::new()),
             recent_events: Mutex::new(VecDeque::new()),
             placement: tokio::sync::Mutex::new(()),
-            image_lock: tokio::sync::Mutex::new(()),
+            gpu: tokio::sync::RwLock::new(()),
             downloads: Mutex::new(BTreeMap::new()),
             download_workers: Arc::new(Semaphore::new(DOWNLOAD_WORKERS)),
             hub_cancels: Mutex::new(HashMap::new()),
@@ -1194,8 +1200,15 @@ impl RuntimeManager {
         Ok(Lease::new(e, Some(gate), priority))
     }
 
-    /// Loads the model (nothing to do when already resident) and returns its engine.
+    /// Loads the model (nothing to do when already resident) and returns its engine. A load
+    /// waits while something has the card to itself (see `gpu`).
     pub async fn load(&self, model_id: &str) -> Result<Arc<EngineProcess>> {
+        if let Some(e) = self.engine(model_id) {
+            if e.state() == State::Ready && e.is_alive() {
+                return Ok(e);
+            }
+        }
+        let _gpu = self.gpu.read().await;
         let _placement = self.placement.lock().await;
         let existing = self.engine(model_id);
         if let Some(e) = &existing {
@@ -1907,6 +1920,9 @@ impl RuntimeManager {
                 return Ok(w.clone());
             }
         }
+        // A speech engine starting while something has the card to itself would page through
+        // system memory; it waits its turn like a text engine's load.
+        let _gpu = self.gpu.read().await;
         let _placement = self.placement.lock().await;
         let existing = self.speech_engines.read().get(&model.id).cloned();
         if let Some(w) = existing {
@@ -2000,7 +2016,7 @@ impl RuntimeManager {
             &self.config.home.images_dir(),
         );
 
-        let _image = self.image_lock.lock().await;
+        let _image = self.gpu.write().await;
         let _busy = BusyFlag::set(&self.image_busy);
         let need = vram_need(&defaults, 4);
         if b != Backend::Cpu && self.config.inventory.budget_bytes().await < need {
@@ -2109,7 +2125,7 @@ impl RuntimeManager {
         );
 
         let _image = tokio::select! {
-            guard = self.image_lock.lock() => guard,
+            guard = self.gpu.write() => guard,
             _ = cancel.cancelled() => return Err(anyhow::Error::new(Stopped)),
         };
         let _busy = BusyFlag::set(&self.video_busy);
@@ -2170,10 +2186,10 @@ impl RuntimeManager {
         need_bytes: u64,
         for_what: &str,
         cancel: &CancellationToken,
-    ) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+    ) -> Option<tokio::sync::RwLockWriteGuard<'_, ()>> {
         let b = self.backend().await;
         let turn = tokio::select! {
-            guard = self.image_lock.lock() => guard,
+            guard = self.gpu.write() => guard,
             _ = cancel.cancelled() => return None,
         };
         if b != Backend::Cpu {
@@ -3597,7 +3613,25 @@ mod tests {
             Some("evicted for the voice engine".to_string())
         );
         assert!(m.engine(&kept).is_some(), "a pinned model stays");
+
+        // While the voice has the card, the resident model still answers, but a model that is
+        // not in waits to load until the turn is over.
+        drop(m.acquire(&kept, Priority::Interactive).await.unwrap());
+        let loading = {
+            let m = m.clone();
+            let idle = idle.clone();
+            tokio::spawn(async move { m.acquire(&idle, Priority::Interactive).await.map(drop) })
+        };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!loading.is_finished(), "no load while the voice speaks");
+        assert!(m.engine(&idle).is_none());
         drop(turn);
+        tokio::time::timeout(Duration::from_secs(20), loading)
+            .await
+            .expect("the load goes on once the turn is over")
+            .unwrap()
+            .unwrap();
+        assert!(m.engine(&idle).is_some());
         m.shutdown().await;
         fakes.abort();
     }
@@ -3764,7 +3798,7 @@ mod tests {
         assert!(!m.is_video_busy());
 
         // A clip waiting behind another render can still be stopped.
-        let held = m.image_lock.lock().await;
+        let held = m.gpu.write().await;
         let cancel = CancellationToken::new();
         let c = cancel.clone();
         tokio::spawn(async move {

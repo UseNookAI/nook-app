@@ -14,11 +14,11 @@ import { ReadAloudFlow } from "./ReadAloudFlow";
 import { SummarizeFlow } from "./SummarizeFlow";
 import { TranscribeFlow } from "./TranscribeFlow";
 import { TranslateFlow } from "./TranslateFlow";
+import { FlowMemory, type FlowKind } from "./memory";
 import "./flows.css";
 import "./nooklets.css";
 
-/** The Nooklets, in the rail's order. */
-export type FlowKind = "TRANSLATE" | "TRANSCRIBE" | "SUMMARIZE" | "READ_ALOUD" | "PDF" | "CONVERT";
+export type { FlowKind } from "./memory";
 
 const FLOWS: { kind: FlowKind; id: NookletId; title: string; icon: string; blurb: string }[] = [
   {
@@ -65,24 +65,7 @@ const FLOWS: { kind: FlowKind; id: NookletId; title: string; icon: string; blurb
   },
 ];
 
-/** The open Nooklet, or the finder ("HOME"), kept while the hub is rendered again (FlowMemory.flow). */
-export const FlowMemory = (() => {
-  let flow: FlowKind | "HOME" = "HOME";
-  const listeners = new Set<() => void>();
-  return {
-    get: () => flow,
-    set(next: FlowKind | "HOME") {
-      flow = next;
-      listeners.forEach((l) => l());
-    },
-    subscribe(l: () => void) {
-      listeners.add(l);
-      return () => {
-        listeners.delete(l);
-      };
-    },
-  };
-})();
+export { FlowMemory };
 
 /** What the finder's request set, for the Nooklet it opened; `nonce` tells one request from the next. */
 interface Asked {

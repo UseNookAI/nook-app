@@ -47,9 +47,10 @@ jobs:
             ui/package-lock.json
 
       - name: Install npm packages
-        run: |
-          npm ci
-          npm --prefix ui ci
+        run: npm ci
+
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
 
       - name: Test
         run: cargo test --workspace

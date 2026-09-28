@@ -241,6 +241,11 @@ async fn a_whole_run_translates_speaks_and_keeps_its_files() {
     );
     assert_eq!(done.model_id.as_deref(), Some("qwen3-4b"));
     assert!((done.duration_seconds - 3.0).abs() < 0.01);
+    // The translation's times are where it is heard in the dubbed track.
+    assert!(done
+        .segments
+        .iter()
+        .all(|s| s.spoken_start.is_some() && s.spoken_end > s.spoken_start));
     assert_eq!(
         *rig.runtime.languages_asked.lock(),
         vec![None],

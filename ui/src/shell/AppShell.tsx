@@ -4,17 +4,19 @@
  * update and quit dialogs. The window is sized per screen as the Kotlin App did.
  */
 import { lazy, Suspense, useCallback, useEffect, useState } from "react";
-import { quit, Setting, settingsSet } from "../api/app";
+import { quit, quitCheck, Setting, settingsSet } from "../api/app";
 import { inTauri } from "../api/ipc";
 import { updateCancel } from "../api/update";
 import { HubNav } from "../screens/code/HubNav";
 import { HubScreen } from "../screens/hub/HubScreen";
 import { NukeScreen } from "../screens/nuke/NukeScreen";
-import { SettingsPopup } from "../screens/settings/SettingsPopup";
+// Settings loads the first time it is opened.
+const SettingsPopup = lazy(() => import("../screens/settings/SettingsPopup").then((m) => ({ default: m.SettingsPopup })));
 import { WELCOME_FLOW_VERSION, WelcomeScreen } from "../screens/welcome/WelcomeScreen";
 import { busyKeys, BusyKey, useBusyKeys, useBusyReporter } from "./busy";
 import { QuitDialog } from "./QuitDialog";
 import { useTheme } from "./theme";
+import { leaveReasons } from "./unsaved";
 import { SetupHeader, TopBar } from "./TopBar";
 import { UpdateDialog } from "./UpdateDialog";
 import { useUpdate } from "./useUpdate";
@@ -46,6 +48,8 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
   const [showSettings, setShowSettings] = useState(previewSettingsTab !== null && screen === "hub");
   const [settingsInitialTab, setSettingsInitialTab] = useState(previewSettingsTab || "general");
   const [showExitDialog, setShowExitDialog] = useState(false);
+  /** What closing now would lose or stop, for the quit dialog. */
+  const [exitReasons, setExitReasons] = useState<string[]>([]);
   const { dark, setMode } = useTheme();
   const update = useUpdate();
   const busy = useBusyKeys();
@@ -59,8 +63,12 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
     else applyWindowMode(true, 1280, 720);
   }, [screen]);
 
-  const requestWindowClose = useCallback(() => {
-    if (busyKeys().length > 0) setShowExitDialog(true);
+  // Alt+F4, the title bar's close button and the in-app one all come here: anything unsaved or
+  // running (edited files, an edited PDF, a Nooklet, a download) is asked about first.
+  const requestWindowClose = useCallback(async () => {
+    const reasons = [...leaveReasons(), ...(await quitCheck().catch(() => [] as string[]))];
+    setExitReasons(reasons);
+    if (reasons.length > 0 || busyKeys().length > 0) setShowExitDialog(true);
     else quit().catch(() => {});
   }, []);
   useCloseRequest(requestWindowClose);
@@ -112,15 +120,17 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
       {isSetupPhase && <SetupHeader onClose={requestWindowClose} onScrim={screen === "nuke"} />}
 
       {showSettings && (
-        <SettingsPopup
+        <Suspense fallback={null}>
+          <SettingsPopup
           initialTabId={settingsInitialTab}
           update={update}
           onDismiss={() => setShowSettings(false)}
-          onNavigateToNuke={() => {
-            setShowSettings(false);
-            setScreen("nuke");
-          }}
-        />
+            onNavigateToNuke={() => {
+              setShowSettings(false);
+              setScreen("nuke");
+            }}
+          />
+        </Suspense>
       )}
 
       {update.popupVisible && status && (
@@ -138,7 +148,9 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
         />
       )}
 
-      {showExitDialog && <QuitDialog busy={busy} onDismiss={() => setShowExitDialog(false)} onConfirm={confirmExit} />}
+      {showExitDialog && (
+        <QuitDialog busy={busy} reasons={exitReasons} onDismiss={() => setShowExitDialog(false)} onConfirm={confirmExit} />
+      )}
     </div>
   );
 }

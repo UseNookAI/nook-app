@@ -70,6 +70,20 @@ pub fn read(bgra: &[u8], width: usize, height: usize) -> Result<Vec<Vec<Word>>> 
     Ok(out)
 }
 
+/// Whether Windows can read text in pictures here: it has recognition for some language.
+#[cfg(windows)]
+pub fn available() -> bool {
+    use windows::Media::Ocr::OcrEngine;
+    OcrEngine::AvailableRecognizerLanguages()
+        .and_then(|all| all.Size())
+        .is_ok_and(|n| n > 0)
+}
+
+#[cfg(not(windows))]
+pub fn available() -> bool {
+    false
+}
+
 #[cfg(not(windows))]
 pub fn read(_bgra: &[u8], _width: usize, _height: usize) -> Result<Vec<Vec<Word>>> {
     anyhow::bail!("Reading text in pictures needs Windows.")

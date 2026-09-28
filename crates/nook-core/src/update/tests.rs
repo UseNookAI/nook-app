@@ -710,6 +710,15 @@ fn the_first_busy_work_names_what_is_running() {
     u.register_busy("video", Arc::new(Busy(Some("a clip is rendering"))));
     u.register_busy("downloads", Arc::new(Busy(Some("a model is downloading"))));
     assert_eq!(u.busy_with().as_deref(), Some("a clip is rendering"));
+    // Quitting asks about all of them, each once.
+    u.register_busy("video again", Arc::new(Busy(Some("a clip is rendering"))));
+    assert_eq!(
+        u.busy_all(),
+        vec![
+            "a clip is rendering".to_string(),
+            "a model is downloading".to_string()
+        ]
+    );
 }
 
 #[test]
