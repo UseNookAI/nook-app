@@ -35,8 +35,9 @@ pub struct Peek {
     pub estimated: bool,
 }
 
-/// How many documents' words are kept, for the run after a preview.
+/// How many documents' words are kept, for the run after a preview, and how much text at most.
 const KEPT_DOCUMENTS: usize = 4;
+const KEPT_BYTES: usize = 64 << 20;
 
 /// A document as it is now: its full path, size and time written. Its words are read again once
 /// any of these changes.
@@ -65,9 +66,19 @@ impl DocKey {
 pub(super) struct Documents {
     kept: Mutex<std::collections::VecDeque<(DocKey, Arc<String>)>>,
     reading: tokio::sync::Mutex<()>,
-    /// The preview being read: its number, its document and what stops it.
-    peek: Mutex<Option<(u64, PathBuf, CancellationToken)>>,
+    /// The preview under way, when one is.
+    peek: Mutex<Option<Peeking>>,
+    /// Numbers for previews asked for without one, from the top half so as not to meet the
+    /// page's.
     peeks: std::sync::atomic::AtomicU64,
+}
+
+/// A preview under way: the document it reads (None for pasted text or a plain file, which
+/// never share), what stops it, and the previews waiting for it, by their numbers.
+struct Peeking {
+    document: Option<PathBuf>,
+    token: CancellationToken,
+    waiting: Vec<u64>,
 }
 
 impl Documents {
@@ -81,41 +92,88 @@ impl Documents {
     }
 
     fn keep(&self, key: DocKey, text: Arc<String>) {
+        self.keep_within(key, text, KEPT_BYTES);
+    }
+
+    /// Keeps `text`, the most recent first, dropping the oldest beyond [`KEPT_DOCUMENTS`] or
+    /// `bytes` of text together; a text larger than `bytes` alone is not kept.
+    fn keep_within(&self, key: DocKey, text: Arc<String>, bytes: usize) {
         let mut kept = self.kept.lock();
         kept.retain(|(k, _)| k.path != key.path);
+        if text.len() > bytes {
+            return;
+        }
         kept.push_front((key, text));
         kept.truncate(KEPT_DOCUMENTS);
+        while kept.iter().map(|(_, t)| t.len()).sum::<usize>() > bytes {
+            kept.pop_back();
+        }
     }
 
-    /// A preview of `path` begins: one of another document stops, one of the same goes on
-    /// (and this one shares it). Returns its number and what stops it.
-    fn start_peek(&self, path: &Path, stopping: &CancellationToken) -> (u64, CancellationToken) {
+    /// A number for a preview asked for without one.
+    fn own_number(&self) -> u64 {
+        (1 << 63) | self.peeks.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Preview `n` begins, of `document` (None for pasted text or a plain file). The preview
+    /// under way stops, unless it is of the same document: then this one waits for it too.
+    /// Returns what stops this one.
+    fn start_peek(
+        &self,
+        document: Option<&Path>,
+        n: u64,
+        stopping: &CancellationToken,
+    ) -> CancellationToken {
         let mut peek = self.peek.lock();
-        if let Some((n, p, token)) = peek.as_ref() {
-            if p == path && !token.is_cancelled() {
-                return (*n, token.clone());
+        if let Some(p) = peek.as_mut() {
+            if document.is_some() && p.document.as_deref() == document && !p.token.is_cancelled() {
+                p.waiting.push(n);
+                return p.token.clone();
             }
+            p.token.cancel();
         }
-        let n = self.peeks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let token = stopping.child_token();
-        if let Some((_, _, old)) = peek.replace((n, path.to_path_buf(), token.clone())) {
-            old.cancel();
-        }
-        (n, token)
+        *peek = Some(Peeking {
+            document: document.map(Path::to_path_buf),
+            token: token.clone(),
+            waiting: vec![n],
+        });
+        token
     }
 
+    /// Preview `n` is over (done or stopped): with no one else waiting, so is the reading.
     fn end_peek(&self, n: u64) {
+        self.leave_peek(n, false);
+    }
+
+    /// Preview `n` is no longer wanted (its page left or chose something else): when no one
+    /// else waits for its reading, the reading stops.
+    fn stop_peek(&self, n: u64) {
+        self.leave_peek(n, true);
+    }
+
+    fn leave_peek(&self, n: u64, stop: bool) {
         let mut peek = self.peek.lock();
-        if peek.as_ref().is_some_and(|(m, _, _)| *m == n) {
+        let Some(p) = peek.as_mut() else {
+            return;
+        };
+        if !p.waiting.contains(&n) {
+            return;
+        }
+        p.waiting.retain(|&w| w != n);
+        if p.waiting.is_empty() {
+            if stop {
+                p.token.cancel();
+            }
             *peek = None;
         }
     }
 
     /// A run is to read `path`: a preview of another document it would wait for stops.
     fn stop_peek_unless(&self, path: &Path) {
-        if let Some((_, p, token)) = self.peek.lock().as_ref() {
-            if p != path {
-                token.cancel();
+        if let Some(p) = self.peek.lock().as_ref() {
+            if p.document.as_deref() != Some(path) {
+                p.token.cancel();
             }
         }
     }
@@ -454,7 +512,17 @@ impl FlowService {
     /// aloud picker and the card. A PDF's first pages are read, its length estimated from them;
     /// another document is read whole, and its words kept for the run. A preview of another
     /// document stops this one; a file whose engine is not in yet tells nothing.
-    pub async fn peek(&self, input: &PlanInput) -> Peek {
+    ///
+    /// `n` names the preview for [`FlowService::stop_peek`] (the page's own number, which it
+    /// stops when it leaves or the input changes); None gives it one.
+    pub async fn peek(&self, input: &PlanInput, n: Option<u64>) -> Peek {
+        let n = n.unwrap_or_else(|| self.documents.own_number());
+        let document = match input {
+            PlanInput::File(p) if !reader::is_plain(p) => Some(p.as_path()),
+            _ => None,
+        };
+        // Whatever this one is, the preview of another document stops.
+        let cancel = self.documents.start_peek(document, n, &self.stopping);
         let (text, scale) = match input {
             PlanInput::Text(t) => (Some(Arc::new(t.clone())), None),
             PlanInput::File(p) if reader::is_plain(p) => {
@@ -468,16 +536,15 @@ impl FlowService {
                 )
             }
             PlanInput::File(p) => match self.reader.get() {
-                Some(r) if r.needs(p).is_ok_and(|n| n.is_empty()) => {
-                    let (n, cancel) = self.documents.start_peek(p, &self.stopping);
-                    let seen = self.peek_document(r.clone(), p, &cancel).await;
-                    self.documents.end_peek(n);
-                    seen.unwrap_or((None, None))
-                }
+                Some(r) if r.needs(p).is_ok_and(|n| n.is_empty()) => self
+                    .peek_document(r.clone(), p, &cancel)
+                    .await
+                    .unwrap_or((None, None)),
                 _ => (None, None),
             },
             _ => (None, None),
         };
+        self.documents.end_peek(n);
         match text {
             Some(t) => {
                 let words = aloud::word_count(&t);
@@ -491,6 +558,11 @@ impl FlowService {
             }
             None => Peek::default(),
         }
+    }
+
+    /// Preview `n` is no longer wanted: its reading stops, unless another preview waits for it.
+    pub fn stop_peek(&self, n: u64) {
+        self.documents.stop_peek(n);
     }
 
     /// A document's words for a preview: those kept from an earlier reading, else a sample of
@@ -807,6 +879,7 @@ impl FlowService {
             reference_text: None,
             female_speaker: run.female,
             out_dir: work.join("spoken"),
+            on_cpu: false,
         };
         let (clips, short) = self.speak_with(id, &request, &facts, cancel).await?;
         stop_if(cancel)?;
@@ -946,6 +1019,28 @@ fn first_words(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_words_kept_are_bounded_by_their_size_too() {
+        let docs = Documents::default();
+        let key = |name: &str| DocKey {
+            path: PathBuf::from(name),
+            len: 1,
+            modified: None,
+        };
+        let text = |n: usize| Arc::new("x".repeat(n));
+        docs.keep_within(key("a"), text(40), 100);
+        docs.keep_within(key("b"), text(40), 100);
+        docs.keep_within(key("c"), text(40), 100);
+        assert!(
+            docs.kept(&key("a")).is_none(),
+            "the oldest went: 120 bytes > 100"
+        );
+        assert!(docs.kept(&key("b")).is_some() && docs.kept(&key("c")).is_some());
+        docs.keep_within(key("big"), text(101), 100);
+        assert!(docs.kept(&key("big")).is_none(), "too large alone");
+        assert!(docs.kept(&key("c")).is_some());
+    }
 
     #[test]
     fn pasted_text_is_named_by_its_first_words() {

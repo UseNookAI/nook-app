@@ -128,9 +128,11 @@ export function SummarizeFlow({
     setPeek(null);
     if (mode !== "FILE" || !file) return;
     let alive = true;
-    flowsPeek(file, null).then((p) => alive && setPeek(p), () => undefined);
+    const peek = flowsPeek(file, null);
+    peek.reply.then((p) => alive && setPeek(p), () => undefined);
     return () => {
       alive = false;
+      peek.stop();
     };
   }, [mode, file, planTick]);
 

@@ -252,6 +252,8 @@ impl PdfEditor {
                     pdfium,
                     docs: HashMap::new(),
                     fonts: None,
+                    #[cfg(test)]
+                    fail_drawing_after_edit: false,
                 };
                 while let Ok(job) = rx.recv() {
                     job(&mut engine);
@@ -519,6 +521,9 @@ struct Engine {
     pdfium: &'static Pdfium,
     docs: HashMap<String, Doc>,
     fonts: Option<SystemFonts>,
+    /// A test's way to make drawing the page after an edit fail, once.
+    #[cfg(test)]
+    fail_drawing_after_edit: bool,
 }
 
 fn pdf_error(e: PdfiumError) -> anyhow::Error {
@@ -940,7 +945,14 @@ impl Engine {
                     return Err(e);
                 }
             };
-            let after = self.page_drawing(id, block.page)?;
+            // From here to Undo the edit is one transaction: whatever fails takes it back.
+            let after = match self.drawing_after_edit(id, block.page) {
+                Ok(after) => after,
+                Err(e) => {
+                    self.take_back(id, block.page, was_dirty, snapshot)?;
+                    return Err(e);
+                }
+            };
             let changed = changed_outside(&before, &after, &allowed);
             if changed <= tolerance {
                 // Kept: only now does the document before it become an undo step.
@@ -967,6 +979,15 @@ impl Engine {
             self.take_back(id, block.page, was_dirty, snapshot.clone())?;
         }
         bail!("Nook could not change that text without spoiling the rest of the page, so the page is as it was.")
+    }
+
+    /// The page drawn as [`Engine::page_drawing`] does, after an edit.
+    fn drawing_after_edit(&mut self, id: &str, page: u32) -> Result<Drawing> {
+        #[cfg(test)]
+        if std::mem::take(&mut self.fail_drawing_after_edit) {
+            bail!("The page could not be drawn (a test's failure).");
+        }
+        self.page_drawing(id, page)
     }
 
     /// The page drawn small (1.5 pixels a point), to hold an edit's result against.
@@ -3271,6 +3292,74 @@ q 60 200 80 60 re W n 0 0 1 rg 0 0 612 792 re f Q
         assert_eq!(
             editor.busy_with().as_deref(),
             Some("a PDF has changes that are not saved yet")
+        );
+
+        // An edit made but then not drawn is taken back whole: the page, the count of edits, the
+        // page's version, whether it was saved, and Undo's history before it.
+        let fail_next = || {
+            editor.call(|e| {
+                e.fail_drawing_after_edit = true;
+                Ok(())
+            })
+        };
+        let shared = &editor;
+        let heading = move |id: String| async move {
+            shared
+                .pick(&id, 0, Area::Point { x: 100.0, y: 505.0 })
+                .await
+                .unwrap()
+                .block
+                .expect("the heading")
+        };
+        let before = editor.docs().await.unwrap();
+        let edited = before.iter().find(|d| d.id == fresh.id).unwrap().clone();
+        assert_eq!(
+            (edited.edits, edited.dirty, edited.can_undo),
+            (1, true, true)
+        );
+        fail_next().await.unwrap();
+        let line = heading(fresh.id.clone()).await;
+        let failed = editor
+            .replace(&fresh.id, line, vec!["Not kept".into()], Align::Left)
+            .await;
+        assert!(failed.is_err());
+        let after = editor.docs().await.unwrap();
+        let now = after.iter().find(|d| d.id == fresh.id).unwrap();
+        assert_eq!(now.edits, edited.edits);
+        assert_eq!(now.dirty, edited.dirty);
+        assert_eq!(now.pages[0].version, edited.pages[0].version);
+        let text = text_of(fresh.id.clone(), 0).await.unwrap();
+        assert!(
+            text.contains("Changed") && !text.contains("Not kept"),
+            "{text}"
+        );
+        let undone = editor.undo(&fresh.id).await.unwrap();
+        assert_eq!(
+            undone.edits, 0,
+            "the edit before it is still Undo's to take back"
+        );
+        let text = text_of(fresh.id.clone(), 0).await.unwrap();
+        assert!(
+            text.contains("Digital Documents All In One Place"),
+            "{text}"
+        );
+
+        // On a document never changed: still unchanged, and nothing to undo.
+        let clean = editor.open(&pdf).await.unwrap();
+        fail_next().await.unwrap();
+        let line = heading(clean.id.clone()).await;
+        let failed = editor
+            .replace(&clean.id, line, vec!["Not kept".into()], Align::Left)
+            .await;
+        assert!(failed.is_err());
+        let now = editor.docs().await.unwrap();
+        let now = now.iter().find(|d| d.id == clean.id).unwrap();
+        assert_eq!((now.edits, now.dirty, now.can_undo), (0, false, false));
+        assert_eq!(now.pages[0].version, clean.pages[0].version);
+        let text = text_of(clean.id.clone(), 0).await.unwrap();
+        assert!(
+            text.contains("Digital Documents All In One Place"),
+            "{text}"
         );
     }
 

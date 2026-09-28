@@ -45,8 +45,8 @@ pub struct Facts {
 /// A turn with the graphics card to itself, for as long as `hold` lives.
 pub struct Turn<'a> {
     pub hold: Box<dyn Send + 'a>,
-    /// What the person reads when the card still had less free than the turn asked for.
-    pub short: Option<String>,
+    /// When the card still had less free than the turn asked for.
+    pub short: Option<crate::runtime::Shortage>,
 }
 
 #[async_trait]

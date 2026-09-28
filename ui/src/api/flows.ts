@@ -225,7 +225,18 @@ export const flowsSubmitFor = (input: string | null, text: string | null, order:
 /** Stops recording and queues the transcript of what was said. */
 export const flowsRecordStopFor = (order: Order) => call<Run>("flows_record_stop_for", { order });
 /** A document's or text's language and words, before a run. */
-export const flowsPeek = (input: string | null, text: string | null) => call<Peek>("flows_peek", { input, text });
+let peeks = 0;
+/**
+ * A document's or pasted text's language and length, before a run: the reply, and `stop` for when
+ * the page no longer wants it (it left, or its input changed), which stops the reading.
+ */
+export function flowsPeek(input: string | null, text: string | null): { reply: Promise<Peek>; stop: () => void } {
+  const id = ++peeks;
+  return {
+    reply: call<Peek>("flows_peek", { input, text, id }),
+    stop: () => void call<void>("flows_peek_stop", { id }).catch(() => undefined),
+  };
+}
 /** Opens one of the files a run wrote. */
 export const flowsOpenFile = (id: string, path: string) => call<void>("flows_open_file", { id, path });
 export const flowsRevealFile = (id: string, path: string) => call<void>("flows_reveal_file", { id, path });

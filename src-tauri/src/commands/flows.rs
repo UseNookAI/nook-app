@@ -176,14 +176,23 @@ pub async fn flows_record_stop_for(state: State<'_, AppState>, order: Order) -> 
 }
 
 /// A document's or pasted text's language (when it can be told) and its words, before a run.
+/// `id` is the page's number for it, to stop it with [`flows_peek_stop`].
 #[tauri::command]
 pub async fn flows_peek(
     state: State<'_, AppState>,
     input: Option<String>,
     text: Option<String>,
+    id: Option<u64>,
 ) -> CmdResult<Peek> {
     let input = nooklet_input(input, false, text);
-    Ok(state.0.flows.peek(&input).await)
+    Ok(state.0.flows.peek(&input, id).await)
+}
+
+/// The page no longer wants preview `id` (it left, or its input changed): it stops, unless
+/// another preview waits for the same reading.
+#[tauri::command]
+pub fn flows_peek_stop(state: State<'_, AppState>, id: u64) {
+    state.0.flows.stop_peek(id);
 }
 
 /// Opens the default microphone for a spoken run; levels go out on the "speech" topic.

@@ -3,14 +3,18 @@
 //! its own code: a test the worker wrote, a build script, a package's install step. So each runs as
 //! a low-integrity, restricted process with its privileges dropped:
 //!
-//! - It writes only where things are labelled low, which Nook makes the scratch copy and the
-//!   checks' own caches (temporary files, package and build caches, under LocalLow). Not the
-//!   person's repository, their other files, their registry settings or the clipboard.
-//! - It reads only what every account on the computer may read (Windows, Program Files, most
-//!   other drives) and what Nook grants the checks' own SID: the scratch copy, the caches, and
-//!   the toolchains on its PATH that live in the person's profile. Not the rest of the profile,
-//!   where a person's keys, tokens and browser data are, nor their registry settings. Windows
-//!   PowerShell 5.1 cannot start so (PowerShell 7 and .NET can): see [`POWERSHELL_HINT`].
+//! - It writes only in its own [`Workspace`]: the scratch copy and caches of its own (temporary
+//!   files, package and build caches, under LocalLow). Those are labelled low, and given to the
+//!   person, SYSTEM, the administrators and a SID only that workspace's checks carry, whatever
+//!   their parent folders allow. Not the person's repository, their other files, another scratch
+//!   copy or its caches, their registry settings or the clipboard.
+//! - It reads only its workspace, what every account on the computer may read (Windows, Program
+//!   Files, most other drives: whatever grants Everyone or the users), and the toolchains on its
+//!   PATH that live in the person's profile, which Nook grants [`TOOLCHAINS_SID`] to read and
+//!   run ([`toolchain_dirs`] says which: never the profile's own folders). Not the rest of the
+//!   profile, where a person's keys, tokens and browser data are, nor their registry settings.
+//!   Windows PowerShell 5.1 cannot start so (PowerShell 7 and .NET can): see
+//!   [`POWERSHELL_HINT`].
 //! - It inherits only the part of Nook's environment toolchains need ([`INHERITED`]), never a
 //!   token or password set for other programs.
 //! - It still has the network (a build fetches its packages). No setting of the token can take
@@ -21,11 +25,11 @@
 //!   toolchain installed with permissions of its own (Node's installer leaves out the app
 //!   packages) without an administrator granting them.
 //!
-//! [`prepare`] grants and labels a scratch copy once; [`spawn`] starts a command in it the same
+//! [`prepare`] makes a scratch copy a workspace once; [`spawn`] starts a command in it the same
 //! way on every call, with the environment [`inherited`] and [`environment`] give (caches moved
-//! to LocalLow); [`Sandboxed`] is the running command: its output pipes, its exit, and its job
-//! (the command and everything it started), terminated when it runs too long or the worker
-//! stops.
+//! to the workspace's); [`Sandboxed`] is the running command: its output pipes, its exit, and
+//! its job (the command and everything it started), terminated when it runs too long or the
+//! worker stops.
 //!
 //! `NOOK_UNSANDBOXED_CHECKS=1` in Nook's own environment runs checks as before, for a toolchain
 //! that cannot work this way; nothing a repository contains can turn the sandbox off.
@@ -108,6 +112,51 @@ pub fn inherited() -> BTreeMap<String, String> {
         .collect()
 }
 
+/// A scratch copy as the sandbox knows it: its folder, a SID only its own checks carry, and
+/// caches of its own. Its folder and caches are granted that SID and no one else's, so the
+/// checks of one scratch copy cannot reach another's files or caches.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Workspace {
+    pub dir: PathBuf,
+    pub caches: PathBuf,
+    sid: String,
+}
+
+/// The first three numbers of the SIDs Nook makes up for its checks: a domain that does not
+/// exist (the numbers of the capability SID Windows derives from "nookChecks"; a capability SID
+/// itself cannot restrict a token).
+const SID_BASE: &str = "S-1-5-21-2534765756-3568468254-3032394455";
+
+impl Workspace {
+    /// The workspace of the scratch copy `dir`. Its SID and caches follow from its full path, so
+    /// they are the same on every run of Nook.
+    pub fn of(dir: &Path) -> Workspace {
+        use sha2::Digest;
+        let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
+        let key = dir
+            .to_string_lossy()
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_lowercase();
+        let hash = sha2::Sha256::digest(key.as_bytes());
+        let part = |i: usize| u32::from_le_bytes([hash[i], hash[i + 1], hash[i + 2], hash[i + 3]]);
+        Workspace {
+            caches: caches().join(hex::encode(&hash[..8])),
+            sid: format!("{SID_BASE}-{}-{}", part(0), part(4)),
+            dir,
+        }
+    }
+
+    /// The SID only this workspace's checks carry.
+    pub fn sid(&self) -> &str {
+        &self.sid
+    }
+}
+
+/// The SID every check carries for reading the toolchains in the person's profile, which Nook
+/// grants it (read and run only, never write).
+pub const TOOLCHAINS_SID: &str = "S-1-5-21-2534765756-3568468254-3032394455-2351130842";
+
 /// Grants the checks the toolchains on `env`'s PATH that live in the person's profile, which
 /// they could not read otherwise ([`toolchain_dirs`]).
 pub fn grant_toolchains(env: &BTreeMap<String, String>) {
@@ -116,11 +165,8 @@ pub fn grant_toolchains(env: &BTreeMap<String, String>) {
         let Some(profile) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
             return;
         };
-        for dir in toolchain_dirs(env, &profile)
-            .into_iter()
-            .filter(|d| d.is_dir())
-        {
-            if let Err(e) = imp::grant(&dir, false) {
+        for dir in toolchain_dirs(env, &profile) {
+            if let Err(e) = imp::grant(&dir, TOOLCHAINS_SID) {
                 tracing::warn!("The checks cannot use {}: {e:#}", dir.display());
             }
         }
@@ -129,10 +175,54 @@ pub fn grant_toolchains(env: &BTreeMap<String, String>) {
     let _ = env;
 }
 
+/// Folders of a person's profile that hold their own files, which no check is granted however
+/// they come to be on PATH: the profile itself, its dot folders (`.ssh`, `.aws`), its Documents,
+/// Desktop, Downloads and the like, and AppData's own folders.
+fn personal(dir: &Path, profile: &Path) -> bool {
+    let lower = |p: &Path| {
+        p.to_string_lossy()
+            .replace('/', "\\")
+            .trim_end_matches('\\')
+            .to_lowercase()
+    };
+    let (dir, home) = (lower(dir), lower(profile));
+    let Some(rest) = dir.strip_prefix(&home).and_then(|r| r.strip_prefix('\\')) else {
+        return dir == home;
+    };
+    let parts: Vec<&str> = rest.split('\\').collect();
+    match parts.as_slice() {
+        [one] => {
+            one.starts_with('.')
+                || one.starts_with("onedrive")
+                || [
+                    "documents",
+                    "desktop",
+                    "downloads",
+                    "pictures",
+                    "music",
+                    "videos",
+                    "favorites",
+                    "contacts",
+                    "links",
+                    "saved games",
+                    "searches",
+                    "appdata",
+                ]
+                .contains(one)
+        }
+        ["appdata", _] => true,
+        ["appdata", "local", "programs" | "microsoft"] | ["appdata", "roaming", "microsoft"] => {
+            true
+        }
+        _ => false,
+    }
+}
+
 /// The folders in `profile` a check's toolchains need: each folder on `env`'s PATH that is in
-/// it (its parent for a `bin`, `Scripts` or `cmd` folder, as a Python's or a Git's is, unless
-/// that is a dot folder such as `.cargo`, which holds a person's credentials too), and rustup's
-/// toolchains.
+/// it, but not a [`personal`] one; for a `bin`, `Scripts` or `cmd` folder its parent instead, as
+/// a Python's or a Git's is, when that parent is a program's own (it holds an .exe itself) and
+/// neither personal nor a dot folder such as `.cargo`, which holds credentials too; and rustup's
+/// toolchains. Only folders that are there.
 pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<PathBuf> {
     let get = |k: &str| {
         env.iter()
@@ -146,9 +236,20 @@ pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<Pat
         let l = lower(p);
         l.starts_with(&home) && l.trim_end_matches('\\').len() >= home.len()
     };
+    let program_folder = |d: &Path| {
+        std::fs::read_dir(d).is_ok_and(|entries| {
+            entries.flatten().any(|e| {
+                e.file_type().is_ok_and(|t| t.is_file())
+                    && e.file_name()
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .ends_with(".exe")
+            })
+        })
+    };
     let mut dirs: Vec<PathBuf> = Vec::new();
     for dir in std::env::split_paths(&get("PATH").unwrap_or_default()) {
-        if !dir.is_absolute() || !inside(&dir) {
+        if !dir.is_absolute() || !inside(&dir) || personal(&dir, profile) || !dir.is_dir() {
             continue;
         }
         let name = dir
@@ -159,9 +260,14 @@ pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<Pat
             Some(up)
                 if ["bin", "scripts", "cmd"].contains(&name.as_str())
                     && inside(up)
+                    && up
+                        .parent()
+                        .is_some_and(|p| lower(p).trim_end_matches('\\').len() >= home.len())
+                    && !personal(up, profile)
                     && !up
                         .file_name()
-                        .is_some_and(|n| n.to_string_lossy().starts_with('.')) =>
+                        .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+                    && program_folder(up) =>
             {
                 up.to_path_buf()
             }
@@ -172,7 +278,7 @@ pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<Pat
     let rustup = get("RUSTUP_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| profile.join(".rustup"));
-    if inside(&rustup) {
+    if inside(&rustup) && rustup.is_dir() {
         dirs.push(rustup);
     }
     dirs.sort();
@@ -186,7 +292,7 @@ pub fn enabled() -> bool {
 }
 
 /// Where the checks' caches live: `%USERPROFILE%\AppData\LocalLow\Nook\checks`, a folder low
-/// processes may write to by Windows' own label.
+/// processes may write to by Windows' own label, a folder in it for each workspace.
 pub fn caches() -> PathBuf {
     local_low().join("Nook").join("checks")
 }
@@ -203,12 +309,16 @@ fn local_low() -> PathBuf {
         .join("LocalLow")
 }
 
+/// The cache folders in a workspace's caches, one for each variable [`environment`] sets.
+const CACHE_FOLDERS: [&str; 11] = [
+    "tmp", "npm", "yarn", "gradle", "go", "pip", "cache", "nuget", "dotnet", "cargo", "home",
+];
+
 /// What a check's environment changes, over `base`: temporary files and the package and build
-/// caches that would otherwise be written in the person's profile go to the checks' caches.
-/// Only what `base` does not set already.
-pub fn environment(base: &BTreeMap<String, String>) -> Vec<(String, String)> {
-    let root = caches();
-    let at = |p: &str| root.join(p).display().to_string();
+/// caches that would otherwise be written in the person's profile go to the workspace's own
+/// caches. Only what `base` does not set already.
+pub fn environment(base: &BTreeMap<String, String>, ws: &Workspace) -> Vec<(String, String)> {
+    let at = |p: &str| ws.caches.join(p).display().to_string();
     let wanted = [
         ("TEMP", at("tmp")),
         ("TMP", at("tmp")),
@@ -241,24 +351,63 @@ pub fn environment(base: &BTreeMap<String, String>) -> Vec<(String, String)> {
         .collect()
 }
 
-/// Labels `dir` (and all it holds, and all made in it later) low, so a sandboxed check can write
-/// there. Makes the checks' cache folders too. Cheap to call again.
-pub fn prepare(dir: &Path) -> Result<()> {
+/// How long a workspace's caches stay once no check has used them.
+const CACHES_KEPT_DAYS: u64 = 30;
+
+/// Makes `ws` the workspace's alone: its folder and its caches (made here) are given to the
+/// person, SYSTEM, the administrators and the workspace's SID only, whatever their parent
+/// folders grant (a drive where every user may write), and labelled low, so its checks may
+/// write there and no other workspace's may even read. Caches no check has used for
+/// [`CACHES_KEPT_DAYS`] go, as do the caches all workspaces shared before 2026-09-29. Once per
+/// workspace in a run of Nook is enough.
+pub fn prepare(ws: &Workspace) -> Result<()> {
     #[cfg(windows)]
     {
-        for sub in [
-            "tmp", "npm", "yarn", "gradle", "go", "pip", "cache", "nuget", "dotnet", "cargo",
-            "home",
-        ] {
-            std::fs::create_dir_all(caches().join(sub))?;
+        // One at a time, so a sweep never takes caches another workspace is still making.
+        static PREPARING: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _one = PREPARING.lock();
+        sweep_caches(&caches(), &ws.caches);
+        std::fs::create_dir_all(&ws.caches)?;
+        std::fs::write(ws.caches.join(".used"), b"")?;
+        for sub in CACHE_FOLDERS {
+            std::fs::create_dir_all(ws.caches.join(sub))?;
         }
-        imp::grant(&caches(), true)?;
-        imp::label_low(dir)?;
-        imp::grant(dir, true)?;
+        for dir in [&ws.caches, &ws.dir] {
+            imp::own(dir, &ws.sid)?;
+            imp::label_low(dir)?;
+        }
     }
     #[cfg(not(windows))]
-    let _ = dir;
+    let _ = ws;
     Ok(())
+}
+
+/// Removes, from the checks' caches in `root`, the folders all workspaces shared before each had
+/// its own, and workspaces' caches unused for [`CACHES_KEPT_DAYS`], but never `keep`.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn sweep_caches(root: &Path, keep: &Path) {
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    let stale = std::time::Duration::from_secs(CACHES_KEPT_DAYS * 24 * 3600);
+    for e in entries.flatten() {
+        let path = e.path();
+        if path == keep || !e.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let name = e.file_name().to_string_lossy().into_owned();
+        let shared = CACHE_FOLDERS.contains(&name.as_str());
+        // Last used as its marker says, else (it was being made) as the folder itself does.
+        let unused = name.len() == 16
+            && name.bytes().all(|b| b.is_ascii_hexdigit())
+            && std::fs::metadata(path.join(".used"))
+                .or_else(|_| std::fs::metadata(&path))
+                .and_then(|m| m.modified())
+                .is_ok_and(|t| t.elapsed().is_ok_and(|age| age > stale));
+        if shared || unused {
+            let _ = std::fs::remove_dir_all(&path);
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -288,10 +437,11 @@ mod imp {
         SetTokenInformation, TokenDefaultDacl, TokenGroups, TokenIntegrityLevel, TokenUser,
         WinLowLabelSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, ACL_SIZE_INFORMATION,
         CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE,
-        LABEL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE,
-        SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_DEFAULT,
-        TOKEN_ASSIGN_PRIMARY, TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE, TOKEN_GROUPS,
-        TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
+        LABEL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, PROTECTED_DACL_SECURITY_INFORMATION,
+        SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE, SID_AND_ATTRIBUTES,
+        SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY,
+        TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE, TOKEN_GROUPS, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+        TOKEN_USER,
     };
     use windows_sys::Win32::Storage::FileSystem::{
         CreateFileW, FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_SHARE_READ,
@@ -320,12 +470,10 @@ mod imp {
     const SYSTEM_MANDATORY_LABEL_NO_WRITE_UP: u32 = 0x1;
     const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 
-    /// Nook's own SID for its checks, made up: an account in a domain that does not exist (its
-    /// numbers from the capability SID Windows derives from "nookChecks"; a capability SID
-    /// itself cannot restrict a token). No account or program carries it but a check's token,
-    /// so what Nook grants it is granted to the checks alone.
-    pub(crate) const CHECKS_SID: &str = "S-1-5-21-2534765756-3568468254-3032394455-1660974106";
+    use super::{Workspace, TOOLCHAINS_SID};
+
     const USERS_SID: &str = "S-1-5-32-545";
+    const ADMINISTRATORS_SID: &str = "S-1-5-32-544";
     const AUTHENTICATED_USERS_SID: &str = "S-1-5-11";
     const EVERYONE_SID: &str = "S-1-1-0";
     const SYSTEM_SID: &str = "S-1-5-18";
@@ -376,6 +524,107 @@ mod imp {
 
     fn wide(s: &OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    /// Nook's own token, to read and to make a check's from.
+    fn own_token() -> Result<OwnedHandle> {
+        let mut own: HANDLE = std::ptr::null_mut();
+        // SAFETY: the handle is owned right away.
+        unsafe {
+            if OpenProcessToken(
+                GetCurrentProcess(),
+                TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT,
+                &mut own,
+            ) == 0
+            {
+                return Err(last_error("Could not read Nook's own token"));
+            }
+            Ok(OwnedHandle::from_raw_handle(own as _))
+        }
+    }
+
+    /// An access list granting each of `sids` everything, inherited by all below when
+    /// `inherit`; freed with LocalFree.
+    fn full_access(sids: &[*mut c_void], inherit: bool) -> Result<*mut ACL> {
+        let entries: Vec<EXPLICIT_ACCESS_W> = sids
+            .iter()
+            .map(|&sid| EXPLICIT_ACCESS_W {
+                grfAccessPermissions: if inherit {
+                    FILE_ALL_ACCESS
+                } else {
+                    GENERIC_ALL
+                },
+                grfAccessMode: GRANT_ACCESS,
+                grfInheritance: if inherit {
+                    SUB_CONTAINERS_AND_OBJECTS_INHERIT
+                } else {
+                    0
+                },
+                Trustee: TRUSTEE_W {
+                    pMultipleTrustee: std::ptr::null_mut(),
+                    MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                    TrusteeForm: TRUSTEE_IS_SID,
+                    TrusteeType: TRUSTEE_IS_UNKNOWN,
+                    ptstrName: sid as *mut u16,
+                },
+            })
+            .collect();
+        let mut acl: *mut ACL = std::ptr::null_mut();
+        // SAFETY: the entries point at SIDs the caller keeps alive; Windows allocates the list.
+        let err = unsafe {
+            SetEntriesInAclW(
+                entries.len() as u32,
+                entries.as_ptr(),
+                std::ptr::null(),
+                &mut acl,
+            )
+        };
+        if err != 0 {
+            bail!(
+                "Could not make an access list: {}",
+                std::io::Error::from_raw_os_error(err as i32)
+            );
+        }
+        Ok(acl)
+    }
+
+    /// Gives `dir` and all it holds to the person, SYSTEM, the administrators and `sid` alone:
+    /// its access list is set anew, no longer inheriting its parent's (which may let every user
+    /// of the computer in), and what it holds inherits that.
+    pub(super) fn own(dir: &Path, sid: &str) -> Result<()> {
+        let token = own_token()?;
+        let user_info = token_info(token.as_raw_handle() as HANDLE, TokenUser)?;
+        // SAFETY: the buffer holds a TOKEN_USER, whose SID lives as long as it.
+        let user = unsafe { (*(user_info.as_ptr() as *const TOKEN_USER)).User.Sid };
+        let (system, admins, workspace) = (
+            Sid::parse(SYSTEM_SID)?,
+            Sid::parse(ADMINISTRATORS_SID)?,
+            Sid::parse(sid)?,
+        );
+        let acl = full_access(&[user, system.0, admins.0, workspace.0], true)?;
+        let path = wide(dir.as_os_str());
+        // SAFETY: the list was made above and is freed after.
+        let err = unsafe {
+            let err = SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                acl,
+                std::ptr::null(),
+            );
+            LocalFree(acl as *mut c_void);
+            err
+        };
+        if err != 0 {
+            bail!(
+                "Could not keep {} to its own checks: {}",
+                dir.display(),
+                std::io::Error::from_raw_os_error(err as i32)
+            );
+        }
+        Ok(())
     }
 
     fn last_error(what: &str) -> anyhow::Error {
@@ -467,16 +716,12 @@ mod imp {
         Ok(())
     }
 
-    /// Grants [`CHECKS_SID`] `dir` and all it holds (and all made in it later): everything with
-    /// `write`, else reading and running. Nothing is done when it has that already.
-    pub(super) fn grant(dir: &Path, write: bool) -> Result<()> {
-        let checks = Sid::parse(CHECKS_SID)?;
+    /// Grants `sid` reading and running `dir` and all it holds (and all made in it later).
+    /// Nothing is done when it has that already.
+    pub(super) fn grant(dir: &Path, sid: &str) -> Result<()> {
+        let checks = Sid::parse(sid)?;
         let path = wide(dir.as_os_str());
-        let wanted = if write {
-            FILE_ALL_ACCESS
-        } else {
-            FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
-        };
+        let wanted = FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
         let mut dacl: *mut ACL = std::ptr::null_mut();
         let mut sd: *mut c_void = std::ptr::null_mut();
         // SAFETY: plain Win32 calls; what Windows allocates is freed below.
@@ -574,26 +819,17 @@ mod imp {
     /// A token like Nook's own with every privilege but one dropped, a low integrity level, and
     /// restricted: Windows grants it only what it grants both the person and one of the
     /// restricting SIDs, which are Everyone and the computer's users (what every account here may
-    /// read: Windows, Program Files, most other drives), this logon's SID (its own desktop) and
-    /// Nook's [`CHECKS_SID`] (the scratch copy, the caches, toolchains in the profile). Not the
-    /// person's profile, which grants none of them, nor their registry settings: RESTRICTED,
-    /// which those grant, is left out, though Windows PowerShell 5.1 (the .NET Framework) cannot
-    /// start without it; programs keep passwords there that any process of the person's can
-    /// decrypt. What a check makes, its other commands may open: the default DACL grants the
-    /// SIDs.
-    fn check_token() -> Result<OwnedHandle> {
-        let mut own: HANDLE = std::ptr::null_mut();
+    /// read: Windows, Program Files, most other drives), this logon's SID (its own desktop),
+    /// [`TOOLCHAINS_SID`] (toolchains in the profile, to read) and the workspace's own SID (its
+    /// scratch copy and caches). Not the person's profile, which grants none of them, nor their
+    /// registry settings: RESTRICTED, which those grant, is left out, though Windows PowerShell
+    /// 5.1 (the .NET Framework) cannot start without it; programs keep passwords there that any
+    /// process of the person's can decrypt. Nor another workspace. What a check makes, its other
+    /// commands may open: the default DACL grants the workspace's SID.
+    fn check_token(workspace_sid: &str) -> Result<OwnedHandle> {
+        let own = own_token()?;
         // SAFETY: plain Win32 calls; every handle opened here is owned by an OwnedHandle.
         unsafe {
-            if OpenProcessToken(
-                GetCurrentProcess(),
-                TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT,
-                &mut own,
-            ) == 0
-            {
-                return Err(last_error("Could not read Nook's own token"));
-            }
-            let own = OwnedHandle::from_raw_handle(own as _);
             let user_info = token_info(own.as_raw_handle() as HANDLE, TokenUser)?;
             let user = (*(user_info.as_ptr() as *const TOKEN_USER)).User.Sid;
             let groups_info = token_info(own.as_raw_handle() as HANDLE, TokenGroups)?;
@@ -603,22 +839,28 @@ mod imp {
                     .iter()
                     .find(|g| g.Attributes & SE_GROUP_LOGON_ID == SE_GROUP_LOGON_ID)
                     .map(|g| g.Sid);
-            let (everyone, users, authenticated, checks, system) = (
+            let (everyone, users, authenticated, toolchains, workspace, system) = (
                 Sid::parse(EVERYONE_SID)?,
                 Sid::parse(USERS_SID)?,
                 Sid::parse(AUTHENTICATED_USERS_SID)?,
-                Sid::parse(CHECKS_SID)?,
+                Sid::parse(TOOLCHAINS_SID)?,
+                Sid::parse(workspace_sid)?,
                 Sid::parse(SYSTEM_SID)?,
             );
-            let mut restricting: Vec<SID_AND_ATTRIBUTES> =
-                [everyone.0, users.0, authenticated.0, checks.0]
-                    .into_iter()
-                    .chain(logon)
-                    .map(|sid| SID_AND_ATTRIBUTES {
-                        Sid: sid,
-                        Attributes: 0,
-                    })
-                    .collect();
+            let mut restricting: Vec<SID_AND_ATTRIBUTES> = [
+                everyone.0,
+                users.0,
+                authenticated.0,
+                toolchains.0,
+                workspace.0,
+            ]
+            .into_iter()
+            .chain(logon)
+            .map(|sid| SID_AND_ATTRIBUTES {
+                Sid: sid,
+                Attributes: 0,
+            })
+            .collect();
             let mut restricted: HANDLE = std::ptr::null_mut();
             if CreateRestrictedToken(
                 own.as_raw_handle() as HANDLE,
@@ -636,39 +878,9 @@ mod imp {
             }
             let restricted = OwnedHandle::from_raw_handle(restricted as _);
             // Objects a check makes (a jobserver's semaphore, a pipe) are for its other
-            // processes too, which pass the restricting SIDs' check only through these.
-            let owners: Vec<*mut c_void> = [user, system.0, checks.0]
-                .into_iter()
-                .chain(logon)
-                .collect();
-            let entries: Vec<EXPLICIT_ACCESS_W> = owners
-                .iter()
-                .map(|&sid| EXPLICIT_ACCESS_W {
-                    grfAccessPermissions: GENERIC_ALL,
-                    grfAccessMode: GRANT_ACCESS,
-                    grfInheritance: 0,
-                    Trustee: TRUSTEE_W {
-                        pMultipleTrustee: std::ptr::null_mut(),
-                        MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
-                        TrusteeForm: TRUSTEE_IS_SID,
-                        TrusteeType: TRUSTEE_IS_UNKNOWN,
-                        ptstrName: sid as *mut u16,
-                    },
-                })
-                .collect();
-            let mut dacl: *mut ACL = std::ptr::null_mut();
-            let err = SetEntriesInAclW(
-                entries.len() as u32,
-                entries.as_ptr(),
-                std::ptr::null(),
-                &mut dacl,
-            );
-            if err != 0 {
-                bail!(
-                    "Could not make the checks' default access: {}",
-                    std::io::Error::from_raw_os_error(err as i32)
-                );
-            }
+            // processes too, which pass the restricting SIDs' check only through the
+            // workspace's SID: not another workspace's checks.
+            let dacl = full_access(&[user, system.0, workspace.0], false)?;
             let default = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
             let set = SetTokenInformation(
                 restricted.as_raw_handle() as HANDLE,
@@ -919,16 +1131,17 @@ mod imp {
         }
     }
 
-    /// Starts `program` with `args` in `cwd` as a low-integrity, restricted process with its
-    /// privileges dropped ([`check_token`]), in a job of its own (no clipboard, no desktop
-    /// switching, no system settings), with `env` as its whole environment. `cwd` must have been
-    /// [`prepare`](super::prepare)d.
+    /// Starts `program` with `args` in the workspace's folder as a low-integrity, restricted
+    /// process with its privileges dropped ([`check_token`]), in a job of its own (no clipboard,
+    /// no desktop switching, no system settings), with `env` as its whole environment. The
+    /// workspace must have been [`prepare`](super::prepare)d.
     pub fn spawn(
         program: &str,
         args: &[String],
-        cwd: &Path,
+        ws: &Workspace,
         env: &BTreeMap<String, String>,
     ) -> Result<Sandboxed> {
+        let cwd = ws.dir.as_path();
         let exe = find(program, env).map_err(|e| {
             anyhow!(
                 "Cannot run program \"{program}\" (in directory \"{}\"): {e}",
@@ -936,7 +1149,7 @@ mod imp {
             )
         })?;
         let (application, line) = command_line(&exe, args)?;
-        let token = check_token()?;
+        let token = check_token(ws.sid())?;
         let (out_read, out_write) = pipe()?;
         let (err_read, err_write) = pipe()?;
         let input = null_input()?;
@@ -1046,13 +1259,29 @@ mod tests {
     use super::*;
     use std::io::Read;
 
+    /// A workspace prepared for a test, its caches removed with it.
+    struct Prepared(Workspace);
+
+    impl Drop for Prepared {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0.caches);
+        }
+    }
+
+    fn prepared(dir: &Path) -> Prepared {
+        let ws = Workspace::of(dir);
+        prepare(&ws).unwrap();
+        Prepared(ws)
+    }
+
     fn run(program: &str, args: &[&str], cwd: &Path) -> (i32, String) {
+        let ws = Workspace::of(cwd);
         let mut env = inherited();
-        env.extend(environment(&env));
+        env.extend(environment(&env, &ws));
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let mut child = spawn(program, &args, cwd, &env).unwrap();
+            let mut child = spawn(program, &args, &ws, &env).unwrap();
             let mut out = String::new();
             if let Some(mut o) = child.stdout.take() {
                 let _ = o.read_to_string(&mut out);
@@ -1074,7 +1303,7 @@ mod tests {
         std::fs::create_dir_all(&scratch).unwrap();
         std::fs::create_dir_all(&outside).unwrap();
         std::fs::write(scratch.join("before.txt"), "made before the label").unwrap();
-        prepare(&scratch).unwrap();
+        let _ws = prepared(&scratch);
 
         let (code, out) = run("cmd", &["/c", "echo inside> inside.txt"], &scratch);
         assert_eq!(code, 0, "{out}");
@@ -1120,6 +1349,93 @@ mod tests {
         assert_eq!(code, 0, "{out}");
     }
 
+    #[test]
+    fn caches_no_check_uses_any_more_are_removed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        let old = std::time::SystemTime::now() - std::time::Duration::from_secs(40 * 24 * 3600);
+        for (name, used) in [
+            ("0123456789abcdef", Some(old)),
+            ("fedcba9876543210", Some(std::time::SystemTime::now())),
+            ("00000000000000aa", Some(old)),
+            ("0000000000000bbb", None),
+        ] {
+            let dir = root.join(name);
+            std::fs::create_dir_all(dir.join("tmp")).unwrap();
+            if let Some(t) = used {
+                let marker = std::fs::File::create(dir.join(".used")).unwrap();
+                marker.set_modified(t).unwrap();
+            }
+        }
+        for shared in ["tmp", "cargo"] {
+            std::fs::create_dir_all(root.join(shared).join("x")).unwrap();
+        }
+        std::fs::create_dir_all(root.join("not-a-cache")).unwrap();
+        sweep_caches(root, &root.join("00000000000000aa"));
+        let mut left: Vec<String> = std::fs::read_dir(root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        left.sort();
+        assert_eq!(
+            left,
+            [
+                "00000000000000aa",
+                "0000000000000bbb",
+                "fedcba9876543210",
+                "not-a-cache"
+            ],
+            "the stale and the shared go; the one in use, the fresh, one being made (no marker \
+             yet) and others stay"
+        );
+    }
+
+    #[test]
+    fn one_workspace_cannot_reach_another() {
+        // Both in a folder every user of the computer may change, as a drive's often is: the
+        // workspaces' own permissions must keep them apart all the same.
+        let tmp = tempfile::tempdir().unwrap();
+        let shared = tmp.path().join("shared");
+        std::fs::create_dir_all(&shared).unwrap();
+        let granted = std::process::Command::new("icacls")
+            .arg(&shared)
+            .args(["/grant", "*S-1-5-32-545:(OI)(CI)M"])
+            .output()
+            .unwrap();
+        assert!(granted.status.success(), "{granted:?}");
+        let (a, b) = (shared.join("a"), shared.join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(b.join("pending.txt"), "b's change").unwrap();
+        let (wa, wb) = (prepared(&a), prepared(&b));
+        assert_ne!(wa.0.sid(), wb.0.sid());
+        assert_ne!(wa.0.caches, wb.0.caches);
+        std::fs::write(wb.0.caches.join("tmp").join("cached.txt"), "b's cache").unwrap();
+
+        let theirs = b.join("pending.txt");
+        let cache = wb.0.caches.join("tmp").join("cached.txt");
+        for target in [&theirs, &cache] {
+            assert!(!target.display().to_string().contains(' '));
+            let (code, out) = run("cmd", &["/c", &format!("type {}", target.display())], &a);
+            assert_ne!(code, 0, "reading {} must fail: {out}", target.display());
+            assert!(out.contains("Access is denied"), "{out}");
+            let (code, out) = run(
+                "cmd",
+                &["/c", &format!("echo overwritten> {}", target.display())],
+                &a,
+            );
+            assert_ne!(code, 0, "writing {} must fail: {out}", target.display());
+        }
+        assert_eq!(std::fs::read_to_string(&theirs).unwrap(), "b's change");
+        assert_eq!(std::fs::read_to_string(&cache).unwrap(), "b's cache");
+        // Each writes its own.
+        let (code, out) = run("cmd", &["/c", "echo mine> mine.txt"], &a);
+        assert_eq!(code, 0, "{out}");
+        let (code, out) = run("cmd", &["/c", r"echo t> %TEMP%\mine.txt"], &b);
+        assert_eq!(code, 0, "{out}");
+        assert!(wb.0.caches.join("tmp").join("mine.txt").is_file());
+    }
+
     /// Made up for the test, and in Nook's environment only while it runs.
     const SECRET: &str = "nook-sandbox-sentinel-7f3a";
 
@@ -1130,7 +1446,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let scratch = tmp.path().join("scratch");
         std::fs::create_dir_all(&scratch).unwrap();
-        prepare(&scratch).unwrap();
+        let _ws = prepared(&scratch);
         let private = tmp.path().join("private");
         std::fs::create_dir_all(&private).unwrap();
         let key = private.join("key.txt");
@@ -1168,7 +1484,7 @@ mod tests {
         // SAFETY: the name is this test's own; no other test reads it.
         unsafe { std::env::set_var("NOOK_SANDBOX_TEST_TOKEN", SECRET) };
         let tmp = tempfile::tempdir().unwrap();
-        prepare(tmp.path()).unwrap();
+        let _ws = prepared(tmp.path());
         let (code, out) = run(
             "cmd",
             &["/c", "echo [%NOOK_SANDBOX_TEST_TOKEN%] [%SystemRoot%]"],
@@ -1210,16 +1526,17 @@ mod tests {
         )
         .unwrap();
         std::fs::write(p.join("check.py"), "open('py-ran.txt', 'w').write('ok')\n").unwrap();
-        prepare(&p).unwrap();
+        let ws = prepared(&p);
+        let ws = &ws.0;
 
         let mut env = inherited();
-        env.extend(environment(&env));
+        env.extend(environment(&env, ws));
         grant_toolchains(&env);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let go = |program: &str, args: &[&str]| {
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
             rt.block_on(async {
-                let mut child = spawn(program, &args, &p, &env).unwrap();
+                let mut child = spawn(program, &args, ws, &env).unwrap();
                 let (mut o, mut e) = (child.stdout.take().unwrap(), child.stderr.take().unwrap());
                 let reader = std::thread::spawn(move || {
                     let mut s = String::new();
@@ -1249,31 +1566,64 @@ mod tests {
 
     #[test]
     fn the_toolchains_granted_are_those_in_the_profile_and_no_more() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ann = tmp.path().join("Ann");
+        let files = [
+            r"AppData\Local\Programs\Python\Python311\python.exe",
+            r"AppData\Local\Programs\Python\Python311\Scripts\pip.exe",
+            r".cargo\bin\cargo.exe",
+            r".cargo\credentials.toml",
+            r".rustup\settings.toml",
+            r"AppData\Local\Programs\Git\git-bash.exe",
+            r"AppData\Local\Programs\Git\cmd\git.exe",
+            r"AppData\Local\Programs\Tool\bin\tool.exe",
+            r"AppData\Local\Programs\Tool\notes.txt",
+            // A folder of the person's own on PATH, whose parent must not be granted for it.
+            r"Documents\Scripts\tidy.cmd",
+            r"Documents\secret.txt",
+            r".ssh\id_ed25519",
+            r"bin\ann.exe",
+        ];
+        for f in files {
+            let path = ann.join(f);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, b"").unwrap();
+        }
+        std::fs::create_dir_all(tmp.path().join("Anna").join("bin")).unwrap();
+        let on_path = |p: &str| ann.join(p).display().to_string();
         let path = [
-            r"C:\Windows\System32",
-            r"C:\Users\Ann\AppData\Local\Programs\Python\Python311\Scripts\",
-            r"C:\Users\Ann\AppData\Local\Programs\Python\Python311\",
-            r"C:\Users\Ann\.cargo\bin",
-            r"C:\Users\Ann\AppData\Local\Programs\Git\cmd",
-            r"C:\Users\Anna\bin",
-            r"C:\Users\Ann\bin",
-            r"C:\Program Files\nodejs",
+            r"C:\Windows\System32".to_string(),
+            on_path(r"AppData\Local\Programs\Python\Python311\Scripts\"),
+            on_path(r"AppData\Local\Programs\Python\Python311\"),
+            on_path(r".cargo\bin"),
+            on_path(r"AppData\Local\Programs\Git\cmd"),
+            on_path(r"AppData\Local\Programs\Tool\bin"),
+            on_path(r"Documents\Scripts"),
+            on_path(r".ssh"),
+            on_path("Documents"),
+            on_path(r"not\there"),
+            tmp.path().join("Anna").join("bin").display().to_string(),
+            on_path("bin"),
         ]
         .join(";");
         let env: BTreeMap<String, String> = [("Path".to_string(), path)].into();
-        let dirs = toolchain_dirs(&env, Path::new(r"C:\Users\Ann"));
-        let dirs: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
-        assert_eq!(
-            dirs,
-            [
-                r"C:\Users\Ann\.cargo\bin",
-                r"C:\Users\Ann\.rustup",
-                r"C:\Users\Ann\AppData\Local\Programs\Git",
-                // Once, though PATH has it with and without the last backslash.
-                r"C:\Users\Ann\AppData\Local\Programs\Python\Python311",
-                r"C:\Users\Ann\bin",
-            ]
-        );
+        let dirs: Vec<PathBuf> = toolchain_dirs(&env, &ann);
+        let want: Vec<PathBuf> = [
+            r".cargo\bin",
+            ".rustup",
+            r"AppData\Local\Programs\Git",
+            // Once, though PATH has it with and without the last backslash.
+            r"AppData\Local\Programs\Python\Python311",
+            // Its parent holds no program of its own.
+            r"AppData\Local\Programs\Tool\bin",
+            // The folder on PATH, never Documents for it.
+            r"Documents\Scripts",
+            "bin",
+        ]
+        .iter()
+        .map(|p| ann.join(p))
+        .collect();
+        assert_eq!(dirs, want);
     }
 
     #[test]

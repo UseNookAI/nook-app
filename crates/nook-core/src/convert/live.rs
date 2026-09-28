@@ -3,7 +3,7 @@
 //! folder for the results; Edge and, when installed, Word, Excel and PowerPoint are this
 //! computer's: `cargo test -p nook-core converts_with_the_real_engines -- --ignored --nocapture`.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
@@ -191,5 +191,79 @@ async fn converts_with_the_real_engines() {
     assert_eq!(back[0].rows[1][1], tables::Cell::Number(3.5));
     let _ = Have::default();
     assert!(failures.is_empty(), "failures:\n{}", failures.join("\n"));
-    let _ = Path::new("");
+
+    // Excel 4.0 macro sheets, made by Excel itself (a benign one: its only formula ends the
+    // macro): told apart in both formats, and never opened in a hidden Excel.
+    if ms.excel {
+        let dir = out.join("xlm");
+        let script = out.join("make-xlm.ps1");
+        std::fs::write(&script, MAKE_XLM).unwrap();
+        let made = std::process::Command::new("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+            ])
+            .arg(&script)
+            .arg(&dir)
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let (xls, xlsm) = (dir.join("xlm.xls"), dir.join("xlm.xlsm"));
+        assert!(tables::has_macro_sheets(&xls) && tables::has_macro_sheets(&xlsm));
+        assert!(!tables::has_macro_sheets(&out.join("prices.xlsx")));
+        let steps = routes::route(
+            super::formats::of_path(&xls).unwrap(),
+            by_id("pdf").unwrap(),
+            &ms,
+        )
+        .unwrap();
+        let started = std::time::Instant::now();
+        let r = run::convert(
+            &kit,
+            &steps,
+            &xls,
+            &dir.join("xlm.pdf"),
+            &out.join("work").join("xlm"),
+            &cancel,
+        )
+        .await;
+        println!(
+            "xlm.xls -> pdf: {r:?} in {} ms",
+            started.elapsed().as_millis()
+        );
+        if libre {
+            r.expect("LibreOffice converts it, its macros off");
+        } else {
+            let e = r.unwrap_err().to_string();
+            assert!(e.contains("Excel 4.0 macro sheets"), "{e}");
+            assert!(
+                started.elapsed().as_secs() < 5,
+                "refused at once, not left to wait"
+            );
+        }
+    }
 }
+
+/// Makes a workbook with an Excel 4.0 macro sheet in Excel, as .xls and .xlsm, in the folder
+/// it is given.
+const MAKE_XLM: &str = r"param([string]$Dir)
+$ErrorActionPreference = 'Stop'
+New-Item -ItemType Directory -Force -Path $Dir | Out-Null
+$x = New-Object -ComObject Excel.Application
+try {
+  $x.Visible = $false
+  $x.DisplayAlerts = $false
+  $wb = $x.Workbooks.Add()
+  $ms = $wb.Sheets.Add([Type]::Missing, [Type]::Missing, 1, 3)
+  $ms.Cells.Item(1, 1).Formula = '=RETURN()'
+  $wb.SaveAs((Join-Path $Dir 'xlm.xls'), 56)
+  $wb.SaveAs((Join-Path $Dir 'xlm.xlsm'), 52)
+  $wb.Close($false)
+} finally {
+  $x.Quit()
+  [void][Runtime.InteropServices.Marshal]::ReleaseComObject($x)
+}
+";

@@ -285,7 +285,7 @@ impl VerifyCommands {
     }
 }
 
-/// The scratch copies labelled for sandboxed checks in this run of Nook.
+/// The scratch copies prepared for sandboxed checks in this run of Nook.
 #[cfg(windows)]
 static PREPARED: Lazy<Mutex<std::collections::HashSet<std::path::PathBuf>>> =
     Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
@@ -296,10 +296,10 @@ static GRANTED: Lazy<Mutex<std::collections::HashSet<String>>> =
     Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
 
 /// Runs a command as a sandboxed check ([`super::sandbox`]): a low-integrity, restricted process
-/// in a job of its own, writing only inside `cwd` and the checks' caches, reading nothing private
-/// to the person, with none of Nook's environment but what toolchains need. The same results as
-/// an ordinary run: the exit code and the tail of what it printed, a time limit, the job stopped
-/// when the worker is.
+/// in a job of its own, writing only inside `cwd` (the scratch copy) and its own caches, reading
+/// nothing private to the person nor another scratch copy, with none of Nook's environment but
+/// what toolchains need. The same results as an ordinary run: the exit code and the tail of what
+/// it printed, a time limit, the job stopped when the worker is.
 #[cfg(windows)]
 async fn run_sandboxed(
     parts: &[String],
@@ -310,13 +310,13 @@ async fn run_sandboxed(
     use super::sandbox;
     use std::collections::BTreeMap;
 
-    let dir = cwd.to_path_buf();
-    if !PREPARED.lock().contains(&dir) {
-        let d = dir.clone();
-        tokio::task::spawn_blocking(move || sandbox::prepare(&d))
+    let ws = sandbox::Workspace::of(cwd);
+    if !PREPARED.lock().contains(&ws.dir) {
+        let w = ws.clone();
+        tokio::task::spawn_blocking(move || sandbox::prepare(&w))
             .await
             .map_err(|e| anyhow!("{e}"))??;
-        PREPARED.lock().insert(dir);
+        PREPARED.lock().insert(ws.dir.clone());
     }
     // What of Nook's environment toolchains need, the command's own on top (names without
     // regard to case, as Windows has them), then the sandbox's temporary and cache folders.
@@ -328,7 +328,7 @@ async fn run_sandboxed(
     for (k, v) in env {
         set(&mut all, k, v);
     }
-    for (k, v) in sandbox::environment(&all) {
+    for (k, v) in sandbox::environment(&all, &ws) {
         set(&mut all, &k, &v);
     }
     let path = all
@@ -344,7 +344,7 @@ async fn run_sandboxed(
         GRANTED.lock().insert(path);
     }
     let started = Instant::now();
-    let mut child = sandbox::spawn(&parts[0], &parts[1..], cwd, &all)?;
+    let mut child = sandbox::spawn(&parts[0], &parts[1..], &ws, &all)?;
     let output = Arc::new(Mutex::new(Tail::default()));
     let mut readers = Vec::new();
     if let Some(out) = child.stdout.take() {

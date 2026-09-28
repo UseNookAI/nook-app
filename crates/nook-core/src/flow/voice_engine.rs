@@ -35,6 +35,7 @@ pub struct Line {
 /// - `reference_text`: what is said in the reference, when known
 /// - `female_speaker`: for a preset voice, whether the speaker sounded like a woman
 /// - `out_dir`: where the WAVs go
+/// - `on_cpu`: to speak on the processor, whatever the engine's build (the card is short)
 #[derive(Clone, Debug)]
 pub struct Request {
     pub voice: Voice,
@@ -46,6 +47,7 @@ pub struct Request {
     pub reference_text: Option<String>,
     pub female_speaker: bool,
     pub out_dir: PathBuf,
+    pub on_cpu: bool,
 }
 
 /// Lines spoken so far, of all: `(done, total)`.
@@ -72,7 +74,8 @@ pub struct AudioEngine {
 }
 
 impl AudioEngine {
-    /// `backend` is the build's: `cuda`, `vulkan` or `cpu`.
+    /// `backend` is the build's: `cuda`, `vulkan` or `cpu`. Every build runs on the processor too
+    /// (a request's `on_cpu`).
     pub fn new(cli: impl Into<PathBuf>, backend: &str, threads: usize) -> AudioEngine {
         AudioEngine {
             cli: cli.into(),
@@ -93,7 +96,7 @@ impl AudioEngine {
             "--model".into(),
             r.model.display().to_string(),
             "--backend".into(),
-            self.backend.clone(),
+            self.backend_for(r).to_string(),
             "--request-sequence".into(),
             requests.display().to_string(),
             "--out-dir".into(),
@@ -105,6 +108,17 @@ impl AudioEngine {
             cmd.push(self.threads.to_string());
         }
         cmd
+    }
+}
+
+impl AudioEngine {
+    /// The backend `r` is spoken on: the build's, or the processor.
+    fn backend_for(&self, r: &Request) -> &str {
+        if r.on_cpu {
+            "cpu"
+        } else {
+            &self.backend
+        }
     }
 }
 
@@ -196,7 +210,7 @@ impl Speaker for AudioEngine {
             "Speaking {} lines with {} ({})",
             r.lines.len(),
             r.voice.name,
-            self.backend
+            self.backend_for(r)
         );
         let mut cmd = crate::process::command(&self.cli);
         // Killed when the run stops, even while nothing is left to wait on it.
@@ -306,6 +320,7 @@ mod tests {
             reference_text: Some("Hello there.".into()),
             female_speaker: true,
             out_dir: PathBuf::from(r"C:\work\spoken"),
+            on_cpu: false,
         }
     }
 
@@ -339,6 +354,13 @@ mod tests {
             cmd.join(" "),
             r"--task tts --family qwen3_tts --model C:\voices\v.gguf --backend vulkan --request-sequence C:\work\spoken-requests.json --out-dir C:\work\spoken --metrics --threads 4"
         );
+        // Short of memory on the card: the same build speaks on the processor.
+        let on_cpu = Request {
+            on_cpu: true,
+            ..request("qwen3_tts", true)
+        };
+        let cmd = engine.command(&on_cpu, Path::new(r"C:\work\r.json"));
+        assert!(cmd.join(" ").contains("--backend cpu"), "{cmd:?}");
     }
 
     /// A stand-in for audiocpp_cli: writes a WAV per line it is told of, or fails.
@@ -458,6 +480,7 @@ mod live {
                 reference_text: cloned.then(|| "Thank you for joining us today. We are going to talk about running artificial intelligence on your own computer.".to_string()),
                 female_speaker: pitch.is_some_and(|p| p > audio::FEMALE_ABOVE_HZ),
                 out_dir: out.join(format!("spoken-{voice_id}")),
+                on_cpu: false,
             };
             let started = std::time::Instant::now();
             let clips = engine

@@ -214,6 +214,7 @@ pub fn run() {
             commands::flows::flows_submit_for,
             commands::flows::flows_record_stop_for,
             commands::flows::flows_peek,
+            commands::flows::flows_peek_stop,
             commands::flows::flows_open_file,
             commands::flows::flows_reveal_file,
             commands::pdf::pdf_setup,

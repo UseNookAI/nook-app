@@ -47,7 +47,7 @@ impl Scripted {
 
 thread_local! {
     /// What the card's turn says it is short of, in this test.
-    static SHORT_CARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    static SHORT_CARD: std::cell::RefCell<Option<crate::runtime::Shortage>> = const { std::cell::RefCell::new(None) };
 }
 
 #[async_trait]

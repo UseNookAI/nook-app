@@ -517,9 +517,39 @@ impl Drop for Slot {
 /// lives.
 pub struct GpuTurn<'a> {
     _card: tokio::sync::RwLockWriteGuard<'a, ()>,
-    /// Why the card has less free than the turn asked for, when it has, for the person: the
-    /// pinned models that stay on it.
-    pub short: Option<String>,
+    /// When the card has less free than the turn asked for, with every idle engine unloaded.
+    pub short: Option<Shortage>,
+}
+
+/// The card short of memory for a turn: what it had free, what the turn wanted, and the
+/// pinned models (by name) that stayed on it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Shortage {
+    pub free: u64,
+    pub need: u64,
+    pub pinned: Vec<String>,
+}
+
+impl Shortage {
+    /// "The graphics card had 1.0 GB free of the 4.0 GB the voice needs, with Qwen3 8B pinned
+    /// in Settings > Runtime": what `for_what` ran short of, for the person.
+    pub fn said(&self, for_what: &str) -> String {
+        let gb = |b: u64| format!("{:.1} GB", b as f64 / (1u64 << 30) as f64);
+        let pinned = match self.pinned.as_slice() {
+            [] => String::new(),
+            [one] => format!(", with {one} pinned in Settings > Runtime"),
+            many => format!(
+                ", with {} and {} pinned in Settings > Runtime",
+                many[..many.len() - 1].join(", "),
+                many[many.len() - 1]
+            ),
+        };
+        format!(
+            "The graphics card had {} free of the {} {for_what} needs{pinned}",
+            gb(self.free),
+            gb(self.need)
+        )
+    }
 }
 
 impl Drop for Lease {
@@ -557,26 +587,6 @@ impl Drop for BusyFlag<'_> {
     fn drop(&mut self) {
         self.0.store(false, Ordering::SeqCst);
     }
-}
-
-/// What the person reads when the card had less free for `for_what` than it wants: `kept`, the
-/// pinned models that stayed on it.
-fn short_note(free: u64, need: u64, for_what: &str, kept: &[String]) -> String {
-    let gb = |b: u64| format!("{:.1} GB", b as f64 / (1u64 << 30) as f64);
-    let why = match kept {
-        [] => String::new(),
-        [one] => format!(", with {one} pinned in Settings > Runtime"),
-        many => format!(
-            ", with {} and {} pinned in Settings > Runtime",
-            many[..many.len() - 1].join(", "),
-            many[many.len() - 1]
-        ),
-    };
-    format!(
-        "The graphics card had {} free of the {} {for_what} wants{why}, so it may have run slowly.",
-        gb(free),
-        gb(need)
-    )
 }
 
 // ------------------------------------------------------------------ the manager
@@ -2283,8 +2293,8 @@ impl RuntimeManager {
     /// resident Whisper on an 8 GB card, 2026-09-26). The engines load again
     /// when the next run asks for them. It waits for the requests under way on the card, and
     /// requests wait for it. Pinned models stay: when the card is still short of `need_bytes`,
-    /// the turn says so ([`GpuTurn::short`]). The turn lasts as long as it lives; None when
-    /// `cancel` fired while waiting.
+    /// the turn says so ([`GpuTurn::short`]), for the caller to run elsewhere rather than page.
+    /// The turn lasts as long as it lives; None when `cancel` fired while waiting.
     pub async fn gpu_turn(
         &self,
         need_bytes: u64,
@@ -2319,7 +2329,11 @@ impl RuntimeManager {
                             .map_or_else(|| e.model_id().to_string(), |m| m.display_name)
                     })
                     .collect();
-                short = Some(short_note(after, need_bytes, for_what, &kept));
+                short = Some(Shortage {
+                    free: after,
+                    need: need_bytes,
+                    pinned: kept,
+                });
             }
         }
         Some(GpuTurn { _card: card, short })
@@ -3787,10 +3801,8 @@ mod tests {
             .unwrap()
             .expect("a turn")
             .expect("100 GB is more than the card has");
-        assert!(
-            short.contains("Kept-Chat-Q4") && short.contains("pinned"),
-            "{short}"
-        );
+        assert_eq!(short.pinned, ["Kept-Chat-Q4.gguf"]);
+        assert!(short.free < short.need && short.need == 100 << 30);
         assert!(m.engine(&idle).is_none(), "the idle one went again");
         m.shutdown().await;
         fakes.abort();
@@ -3798,17 +3810,18 @@ mod tests {
 
     #[test]
     fn a_short_card_is_said_with_the_models_kept_on_it() {
+        let short = |pinned: &[&str]| Shortage {
+            free: 2 << 30,
+            need: 4 << 30,
+            pinned: pinned.iter().map(|s| s.to_string()).collect(),
+        };
         assert_eq!(
-            short_note(2 << 30, 4 << 30, "the voice engine", &[]),
-            "The graphics card had 2.0 GB free of the 4.0 GB the voice engine wants, so it may have run slowly."
+            short(&[]).said("the voice"),
+            "The graphics card had 2.0 GB free of the 4.0 GB the voice needs"
         );
-        assert!(short_note(
-            1 << 30,
-            3 << 30,
-            "the voice engine",
-            &["A".into(), "B".into(), "C".into()]
-        )
-        .contains(", with A, B and C pinned in Settings > Runtime, so"));
+        assert!(short(&["A", "B", "C"])
+            .said("the voice")
+            .ends_with(", with A, B and C pinned in Settings > Runtime"));
     }
 
     #[cfg(windows)]

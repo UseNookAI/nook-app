@@ -123,9 +123,12 @@ export function ReadAloudFlow({
     const source = mode === "FILE" ? file : text.trim() ? text : null;
     if (!source) return;
     let alive = true;
+    let stop: (() => void) | null = null;
     const timer = window.setTimeout(() => {
       setPeeking(true);
-      flowsPeek(mode === "FILE" ? file : null, mode === "TEXT" ? text : null)
+      const peek = flowsPeek(mode === "FILE" ? file : null, mode === "TEXT" ? text : null);
+      stop = peek.stop;
+      peek.reply
         .then((p) => {
           if (!alive) return;
           setPeek(p);
@@ -136,6 +139,7 @@ export function ReadAloudFlow({
     return () => {
       alive = false;
       window.clearTimeout(timer);
+      stop?.();
     };
   }, [mode, file, text, planTick, update]);
 

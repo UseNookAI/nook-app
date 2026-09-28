@@ -148,6 +148,44 @@ fn read_delimited(text: &str, delimiter: u8) -> Result<Vec<Vec<Cell>>> {
     Ok(rows)
 }
 
+/// Whether the workbook at `path` has Excel 4.0 macro sheets. Excel runs its automation with
+/// VBA macros off, but not those: opening such a workbook it may stop to ask about them, with
+/// no one to answer a hidden Excel. An old `.xls` says so in its sheets' list, read with
+/// calamine; a zipped workbook (`.xlsx`, `.xlsm`, `.xlsb`) in its content types or the names of
+/// its parts. Which it is, its first bytes say: the zip reader takes an old `.xls` for a zip too
+/// (seen with one Excel saved, 2026-09-28). Anything that cannot be read says no.
+pub fn has_macro_sheets(path: &Path) -> bool {
+    use calamine::{open_workbook_auto, Reader, SheetType};
+    use std::io::Read;
+    let mut magic = [0u8; 4];
+    let zipped = std::fs::File::open(path)
+        .and_then(|mut f| f.read_exact(&mut magic))
+        .is_ok()
+        && magic == *b"PK\x03\x04";
+    if zipped {
+        let Ok(mut zip) = std::fs::File::open(path)
+            .map_err(anyhow::Error::from)
+            .and_then(|f| zip::ZipArchive::new(f).map_err(anyhow::Error::from))
+        else {
+            return false;
+        };
+        let named = zip
+            .file_names()
+            .any(|n| n.to_ascii_lowercase().contains("macrosheet"));
+        let mut types = String::new();
+        let typed = zip
+            .by_name("[Content_Types].xml")
+            .is_ok_and(|mut f| f.read_to_string(&mut types).is_ok())
+            && types.to_ascii_lowercase().contains("macrosheet");
+        return named || typed;
+    }
+    open_workbook_auto(path).is_ok_and(|book| {
+        book.sheets_metadata()
+            .iter()
+            .any(|s| s.typ == SheetType::MacroSheet)
+    })
+}
+
 fn read_workbook(path: &Path) -> Result<Vec<Sheet>> {
     use calamine::{open_workbook_auto, Data, Reader};
     let mut book =
@@ -471,6 +509,42 @@ fn markdown(sheets: &[Sheet]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn excel_4_macro_sheets_are_told_apart() {
+        use std::io::Write;
+        let tmp = tempfile::tempdir().unwrap();
+        // A zipped workbook with a macro sheet, as Excel saves one: its part and its type.
+        let with = tmp.path().join("macros.xlsm");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&with).unwrap());
+        let stored = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Stored);
+        zip.start_file("[Content_Types].xml", stored).unwrap();
+        zip.write_all(br#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/macrosheets/sheet1.xml" ContentType="application/vnd.ms-excel.macrosheet+xml"/></Types>"#).unwrap();
+        zip.start_file("xl/macrosheets/sheet1.xml", stored).unwrap();
+        zip.write_all(b"<xm:macrosheet/>").unwrap();
+        zip.finish().unwrap();
+        assert!(has_macro_sheets(&with));
+
+        // Only its type says so: the part's name is its own.
+        let renamed = tmp.path().join("renamed.xlsm");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&renamed).unwrap());
+        zip.start_file("[Content_Types].xml", stored).unwrap();
+        zip.write_all(br#"<Types><Override PartName="/xl/other/x.xml" ContentType="application/vnd.ms-excel.intlmacrosheet+xml"/></Types>"#).unwrap();
+        zip.finish().unwrap();
+        assert!(has_macro_sheets(&renamed));
+
+        let sheets = vec![Sheet {
+            name: "Prices".into(),
+            rows: vec![vec![Cell::Text("Tea".into()), Cell::Number(3.5)]],
+        }];
+        let plain = tmp.path().join("plain.xlsx");
+        write(&sheets, "xlsx", &plain).unwrap();
+        assert!(!has_macro_sheets(&plain));
+        let text = tmp.path().join("notes.xls");
+        std::fs::write(&text, "not a workbook").unwrap();
+        assert!(!has_macro_sheets(&text));
+    }
 
     #[test]
     fn a_semicolon_csv_becomes_a_workbook_and_back() {

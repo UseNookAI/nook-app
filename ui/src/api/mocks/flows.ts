@@ -952,6 +952,7 @@ export function registerFlowsMocks(): void {
     const pdf = extension(input) === "pdf";
     return { language: /[-_](de|tr|fr|es)\./.exec(input)?.[1] ?? "en", words: pdf ? 12_400 : 2_480, estimated: pdf };
   });
+  mock("flows_peek_stop", () => undefined);
   mock("flows_open_file", () => undefined);
   mock("flows_reveal_file", () => undefined);
   mock("flows_open_folder", () => undefined);

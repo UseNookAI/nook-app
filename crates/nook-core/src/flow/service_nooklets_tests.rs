@@ -77,6 +77,8 @@ impl FlowRuntime for Scripted {
 struct Voice1 {
     asked: Mutex<Vec<(String, bool, Vec<String>)>>,
     skips: Mutex<Vec<(&'static str, usize)>>,
+    /// Whether each request asked for the processor.
+    on_cpu: Mutex<Vec<bool>>,
 }
 
 #[async_trait]
@@ -92,6 +94,7 @@ impl Speaker for Voice1 {
             r.female_speaker,
             r.lines.iter().map(|l| l.text.clone()).collect(),
         ));
+        self.on_cpu.lock().push(r.on_cpu);
         std::fs::create_dir_all(&r.out_dir)?;
         let mut out = Vec::new();
         for (i, l) in r.lines.iter().enumerate() {
@@ -117,7 +120,7 @@ impl Speaker for Voice1 {
 
 thread_local! {
     /// What the card's turn says it is short of, in this test.
-    static SHORT_CARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+    static SHORT_CARD: std::cell::RefCell<Option<crate::runtime::Shortage>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Reads a `.docx` as fixed Markdown once "Pandoc" is in, counting its readings; one named
@@ -213,6 +216,7 @@ fn rig() -> Rig {
     let speaker = Arc::new(Voice1 {
         asked: Mutex::new(Vec::new()),
         skips: Mutex::new(Vec::new()),
+        on_cpu: Mutex::new(Vec::new()),
     });
     let service = FlowService::new(
         runtime.clone(),
@@ -546,26 +550,32 @@ async fn a_look_before_a_run_tells_the_language_and_the_words() {
     let rig = rig();
     let peek = rig
         .service
-        .peek(&PlanInput::Text(
-            "Der Mieter zahlt die Miete am ersten Tag jedes Monats an den Vermieter.".into(),
-        ))
+        .peek(
+            &PlanInput::Text(
+                "Der Mieter zahlt die Miete am ersten Tag jedes Monats an den Vermieter.".into(),
+            ),
+            None,
+        )
         .await;
     assert_eq!(peek.language.as_deref(), Some("de"));
     assert_eq!(peek.words, 13);
     let doc = rig.dir.path().join("lease.docx");
     std::fs::write(&doc, b"PK").unwrap();
     assert_eq!(
-        rig.service.peek(&PlanInput::File(doc.clone())).await,
+        rig.service.peek(&PlanInput::File(doc.clone()), None).await,
         Peek::default(),
         "Pandoc is not in"
     );
     rig.docs.pandoc_in.store(true, Ordering::SeqCst);
-    assert_eq!(rig.service.peek(&PlanInput::File(doc)).await.words, 11);
+    assert_eq!(
+        rig.service.peek(&PlanInput::File(doc), None).await.words,
+        11
+    );
 
     // A long PDF: its first pages are read, and its length estimated from them.
     let pdf = rig.dir.path().join("scan.pdf");
     std::fs::write(&pdf, b"%PDF").unwrap();
-    let peek = rig.service.peek(&PlanInput::File(pdf)).await;
+    let peek = rig.service.peek(&PlanInput::File(pdf), None).await;
     assert_eq!((peek.words, peek.estimated), (120, true));
     assert_eq!(peek.language.as_deref(), Some("en"));
 }
@@ -576,10 +586,10 @@ async fn a_document_read_for_its_preview_is_not_read_again_for_the_run() {
     rig.docs.pandoc_in.store(true, Ordering::SeqCst);
     let doc = rig.dir.path().join("lease.docx");
     std::fs::write(&doc, b"PK").unwrap();
-    let peek = rig.service.peek(&PlanInput::File(doc.clone())).await;
+    let peek = rig.service.peek(&PlanInput::File(doc.clone()), None).await;
     assert_eq!((peek.words, peek.estimated), (11, false));
     assert_eq!(rig.docs.reads.load(Ordering::SeqCst), 1);
-    rig.service.peek(&PlanInput::File(doc.clone())).await;
+    rig.service.peek(&PlanInput::File(doc.clone()), None).await;
     let run = rig
         .service
         .submit_for(&PlanInput::File(doc.clone()), &order(SUMMARIZE))
@@ -594,7 +604,7 @@ async fn a_document_read_for_its_preview_is_not_read_again_for_the_run() {
 
     // Changed on disk: read again.
     std::fs::write(&doc, b"PK and more").unwrap();
-    rig.service.peek(&PlanInput::File(doc)).await;
+    rig.service.peek(&PlanInput::File(doc), None).await;
     assert_eq!(rig.docs.reads.load(Ordering::SeqCst), 2);
 }
 
@@ -609,14 +619,14 @@ async fn choosing_another_document_stops_the_last_ones_preview() {
     let service = rig.service.clone();
     let first = tokio::spawn({
         let slow = slow.clone();
-        async move { service.peek(&PlanInput::File(slow)).await }
+        async move { service.peek(&PlanInput::File(slow), None).await }
     });
     while rig.docs.reads.load(Ordering::SeqCst) == 0 {
         tokio::time::sleep(Duration::from_millis(1)).await;
     }
     let second = tokio::time::timeout(
         Duration::from_secs(5),
-        rig.service.peek(&PlanInput::File(quick)),
+        rig.service.peek(&PlanInput::File(quick), None),
     )
     .await
     .expect("the second preview does not wait for the first");
@@ -626,6 +636,79 @@ async fn choosing_another_document_stops_the_last_ones_preview() {
         .expect("the first preview stopped")
         .unwrap();
     assert_eq!(first, Peek::default());
+}
+
+/// A slow document's preview, numbered `n`, under way: its task, once its reading has begun.
+async fn slow_preview(rig: &Rig, n: u64) -> tokio::task::JoinHandle<Peek> {
+    let slow = rig.dir.path().join("slow.docx");
+    std::fs::write(&slow, b"PK").unwrap();
+    let reads = rig.docs.reads.load(Ordering::SeqCst);
+    let service = rig.service.clone();
+    let task = tokio::spawn(async move { service.peek(&PlanInput::File(slow), Some(n)).await });
+    while rig.docs.reads.load(Ordering::SeqCst) == reads {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    task
+}
+
+async fn stopped(task: tokio::task::JoinHandle<Peek>) {
+    let peek = tokio::time::timeout(Duration::from_secs(5), task)
+        .await
+        .expect("the preview stops at once")
+        .unwrap();
+    assert_eq!(peek, Peek::default());
+}
+
+#[tokio::test]
+async fn pasted_text_a_plain_file_or_leaving_stops_a_preview() {
+    let rig = rig();
+    rig.docs.pandoc_in.store(true, Ordering::SeqCst);
+
+    // Pasted text instead.
+    let first = slow_preview(&rig, 1).await;
+    let text = rig
+        .service
+        .peek(&PlanInput::Text("A few words.".into()), Some(2))
+        .await;
+    assert_eq!(text.words, 3);
+    stopped(first).await;
+
+    // A plain text file instead.
+    let first = slow_preview(&rig, 3).await;
+    let notes = rig.dir.path().join("notes.txt");
+    std::fs::write(&notes, "Two words").unwrap();
+    let plain = rig.service.peek(&PlanInput::File(notes), Some(4)).await;
+    assert_eq!(plain.words, 2);
+    stopped(first).await;
+
+    // The page left: its preview is stopped by its number, and the reading's turn is free.
+    let first = slow_preview(&rig, 5).await;
+    rig.service.stop_peek(5);
+    stopped(first).await;
+    let doc = rig.dir.path().join("lease.docx");
+    std::fs::write(&doc, b"PK").unwrap();
+    let after = tokio::time::timeout(
+        Duration::from_secs(5),
+        rig.service.peek(&PlanInput::File(doc), Some(6)),
+    )
+    .await
+    .expect("nothing holds the reading");
+    assert_eq!(after.words, 11);
+
+    // Two previews of one document share its reading: it stops only when neither wants it.
+    let a = slow_preview(&rig, 7).await;
+    let service = rig.service.clone();
+    let slow = rig.dir.path().join("slow.docx");
+    let b = tokio::spawn(async move { service.peek(&PlanInput::File(slow), Some(8)).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    rig.service.stop_peek(7);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!a.is_finished() && !b.is_finished(), "8 still waits for it");
+    // A number that is not waiting stops nothing.
+    rig.service.stop_peek(42);
+    rig.service.stop_peek(8);
+    stopped(a).await;
+    stopped(b).await;
 }
 
 #[tokio::test]
@@ -664,8 +747,15 @@ async fn a_line_the_voice_skips_is_asked_for_again_and_one_it_never_speaks_is_sa
 }
 
 #[tokio::test]
-async fn a_card_short_of_memory_is_said_on_the_reading() {
-    SHORT_CARD.with(|s| *s.borrow_mut() = Some("The graphics card had 1.0 GB free.".into()));
+async fn a_card_short_of_memory_speaks_on_the_processor_and_says_why() {
+    // A pinned model leaves 1 GB of the 4 GB the voice needs.
+    SHORT_CARD.with(|s| {
+        *s.borrow_mut() = Some(crate::runtime::Shortage {
+            free: 1 << 30,
+            need: 4 << 30,
+            pinned: vec!["Qwen3 8B".into()],
+        })
+    });
     let rig = rig();
     let o = Order {
         language: Some("en".into()),
@@ -677,9 +767,13 @@ async fn a_card_short_of_memory_is_said_on_the_reading() {
         .unwrap();
     let done = finished(&rig.service, &run.id).await;
     assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    assert_eq!(
+        done.note.as_deref(),
+        Some("The graphics card had 1.0 GB free of the 4.0 GB the voice needs, with Qwen3 8B pinned in Settings > Runtime, so the voice ran on the processor instead, which is slower.")
+    );
+    let asked = rig.voice.on_cpu.lock().clone();
     assert!(
-        done.note.as_deref().unwrap_or("").contains("1.0 GB free"),
-        "{:?}",
-        done.note
+        !asked.is_empty() && asked.iter().all(|&cpu| cpu),
+        "never on the card: {asked:?}"
     );
 }

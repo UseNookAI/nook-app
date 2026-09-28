@@ -1398,6 +1398,7 @@ impl FlowService {
             reference_text: c.cloned.then(|| stretch.text.clone()),
             female_speaker: female,
             out_dir: work.join(out),
+            on_cpu: false,
         };
         let first = self
             .speak_with(&run.id, &request(choice, "spoken"), facts, cancel)
@@ -1452,7 +1453,7 @@ impl FlowService {
     }
 
     /// The lines spoken, a clip for each (None where the voice gave none), and what the person
-    /// reads when the card was short of memory for the voice.
+    /// reads when the card was short of memory for the voice, which then spoke on the processor.
     async fn speak_with(
         &self,
         id: &str,
@@ -1479,6 +1480,25 @@ impl FlowService {
         let Some(turn) = self.runtime.gpu_turn(need, cancel).await else {
             return Err(Stopped.into());
         };
+        // Short even with every idle engine unloaded (pinned models stay, or another program
+        // holds the card): the voice speaks on the processor, slower but never paging through
+        // system memory, and the card goes back to the rest at once.
+        let (turn, note) = match &turn.short {
+            Some(short) if facts.voice_backend != "cpu" => {
+                let note = format!(
+                    "{}, so the voice ran on the processor instead, which is slower.",
+                    short.said("the voice")
+                );
+                tracing::info!("Run {id}: {note}");
+                (None, Some(note))
+            }
+            _ => (Some(turn), None),
+        };
+        let on_cpu = Request {
+            on_cpu: true,
+            ..request.clone()
+        };
+        let request = if note.is_some() { &on_cpu } else { request };
         let total = request.lines.len();
         self.stage(id, Stage::Speaking, 0, total);
         let mut clips = speaker
@@ -1527,7 +1547,8 @@ impl FlowService {
             }
         }
         self.stage(id, Stage::Speaking, total, total);
-        Ok((clips, turn.short))
+        drop(turn);
+        Ok((clips, note))
     }
 }
 

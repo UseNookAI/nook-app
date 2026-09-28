@@ -114,6 +114,25 @@ pub async fn convert(
                 )
                 .await?;
             }
+            Step::Office { app, to }
+                if *app == App::Excel && tables::has_macro_sheets(&current) =>
+            {
+                // Excel 4.0 macro sheets, which a hidden Excel may stop to ask about: LibreOffice,
+                // its macros off, converts them when it is here.
+                let Some(soffice) = kit.soffice.clone() else {
+                    bail!("This workbook has Excel 4.0 macro sheets, and Excel would stop to ask about them with no one to answer, so Nook does not open it in Excel. Save a copy without the macro sheets (or as .xlsx) and convert that, or get the office engine (LibreOffice) for Nook to use instead.");
+                };
+                tools::libre_office(
+                    &soffice,
+                    &current,
+                    to,
+                    &target,
+                    work,
+                    &kit.office_profile,
+                    cancel,
+                )
+                .await?;
+            }
             Step::Office { app, to } => {
                 tools::ms_office(*app, &current, to, &target, work, cancel).await?;
             }

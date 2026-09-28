@@ -140,7 +140,7 @@ pub use image_engine::{ImageEngine, ImageRequest, ImageResult};
 pub use inference_client::InferenceClient;
 pub use manager::{
     AdmissionError, EngineInfo, GpuTurn, Lease, ModelLoadError, Readiness, RuntimeEvent,
-    RuntimeManager, RuntimeOptions, SpeechInfo, Status,
+    RuntimeManager, RuntimeOptions, Shortage, SpeechInfo, Status,
 };
 pub use model_catalog::{Artifact, CatalogModel, ModelCatalog};
 pub use model_registry::{LocalModel, ModelRegistry, CODE_WORKER, UNSUPPORTED};
