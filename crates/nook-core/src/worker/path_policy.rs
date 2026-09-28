@@ -264,14 +264,12 @@ impl PathPolicy {
         if norm.parent().is_none() {
             return Some("a whole drive".to_string());
         }
-        if self
-            .user_home
-            .as_deref()
-            .is_some_and(|home| same(home, &norm))
-        {
+        let real = PathPolicy::real(&norm);
+        let either = |d: &Path| same(d, &norm) || same(&PathPolicy::real(d), &real);
+        if self.user_home.as_deref().is_some_and(either) {
             return Some("your home folder".to_string());
         }
-        self.broad.iter().find(|d| same(d, &norm)).map(|d| {
+        self.broad.iter().find(|d| either(d)).map(|d| {
             format!(
                 "the {} folder",
                 d.file_name()
@@ -378,9 +376,20 @@ fn valid_path(s: &str) -> bool {
     !rest.chars().any(|c| c < ' ' || "<>:\"|?*".contains(c))
 }
 
+/// Adds a place to a list as written and, when it differs, as it really is on disk: Windows
+/// spells a folder two ways (`C:\Users\RUNNER~1` and `C:\Users\runneradmin`, when the variable a
+/// place came from uses its short name), and a link is judged by its long, resolved form, which
+/// must still meet the denial.
 fn add(list: &mut Vec<PathBuf>, value: Option<&str>) {
     match value {
-        Some(v) if !v.trim().is_empty() && valid_path(v) => list.push(absolute(Path::new(v))),
+        Some(v) if !v.trim().is_empty() && valid_path(v) => {
+            let written = absolute(Path::new(v));
+            let real = PathPolicy::real(&written);
+            if !same(&real, &written) && !list.iter().any(|p| same(p, &real)) {
+                list.push(real);
+            }
+            list.push(written);
+        }
         _ => {} // missing, or an odd environment value; skip it
     }
 }
@@ -513,10 +522,36 @@ mod tests {
             .unwrap();
     }
 
+    /// `p` by its short (8.3) name when Windows has one for it, as the temporary folder of a CI
+    /// runner is (`C:\Users\RUNNER~1\...`); else `p` as it is.
+    fn short_name(p: &Path) -> PathBuf {
+        #[cfg(windows)]
+        {
+            use std::os::windows::ffi::{OsStrExt, OsStringExt};
+            let wide: Vec<u16> = p.as_os_str().encode_wide().chain([0]).collect();
+            let mut buf = vec![0u16; 1024];
+            // SAFETY: both buffers are NUL-terminated and sized as said.
+            let n = unsafe {
+                windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(
+                    wide.as_ptr(),
+                    buf.as_mut_ptr(),
+                    buf.len() as u32,
+                )
+            } as usize;
+            if n > 0 && n < buf.len() {
+                return PathBuf::from(std::ffi::OsString::from_wide(&buf[..n]));
+            }
+        }
+        p.to_path_buf()
+    }
+
     #[test]
     fn path_policy_enforces_the_rules() {
-        let tmp = tempfile::tempdir().unwrap();
-        let tmp = tmp.path();
+        let dir = tempfile::tempdir().unwrap();
+        // The places as a short name spells them (where Windows keeps short names), so the rules
+        // hold whichever way a folder is written.
+        let short = short_name(dir.path());
+        let tmp = short.as_path();
         let home = tmp.join("nook");
         std::fs::create_dir_all(home.join("data")).unwrap();
         std::fs::write(home.join("gateway.json"), "{}").unwrap();

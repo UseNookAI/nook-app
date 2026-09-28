@@ -954,16 +954,34 @@ pub(crate) mod tests {
         fake_engine_script(dir, name, &format!("{said}exit /b {code}\r\n"))
     }
 
+    /// The redirection goes before the `echo`: after it, arguments ending in a digit (`-t 2`,
+    /// as a four-core CI runner's speech engine is given) would be read as `2>>`, the error
+    /// stream's redirection, and never reach `args.txt`.
     #[cfg(windows)]
     fn fake_engine_script(dir: &Path, name: &str, tail: &str) -> PathBuf {
         std::fs::create_dir_all(dir).unwrap();
         let path = dir.join(name);
         std::fs::write(
             &path,
-            format!("@echo off\r\necho fake engine %*\r\necho %*>>\"%~dp0args.txt\"\r\n{tail}"),
+            format!("@echo off\r\necho fake engine %*\r\n>>\"%~dp0args.txt\" echo %*\r\n{tail}"),
         )
         .unwrap();
         path
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_fake_engine_keeps_arguments_that_end_in_a_digit() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = fake_engine_saying(dir.path(), "whisper-server.cmd", &[], 0);
+        let status = std::process::Command::new(&exe)
+            .args(["--port", "49452", "-t", "2"])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        let args = std::fs::read_to_string(dir.path().join("args.txt")).unwrap();
+        assert_eq!(args.trim(), "--port 49452 -t 2");
     }
 
     /// What llama.cpp b10752 wrote when asked to load the DeepSeek V4 vision encoder (2026-09-26).
