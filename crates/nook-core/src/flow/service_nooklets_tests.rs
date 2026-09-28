@@ -47,8 +47,9 @@ impl FlowRuntime for Scripted {
         _need: u64,
         _cancel: &CancellationToken,
     ) -> Option<crate::flow::runtime::Turn<'a>> {
+        CARD_HELD.with(|c| c.set(true));
         Some(crate::flow::runtime::Turn {
-            hold: Box::new(()),
+            hold: Box::new(Held),
             short: SHORT_CARD.with(|s| s.borrow().clone()),
         })
     }
@@ -77,8 +78,8 @@ impl FlowRuntime for Scripted {
 struct Voice1 {
     asked: Mutex<Vec<(String, bool, Vec<String>)>>,
     skips: Mutex<Vec<(&'static str, usize)>>,
-    /// Whether each request asked for the processor.
-    on_cpu: Mutex<Vec<bool>>,
+    /// Whether each request asked for the processor, and whether the card was held meanwhile.
+    on_cpu: Mutex<Vec<(bool, bool)>>,
 }
 
 #[async_trait]
@@ -94,7 +95,9 @@ impl Speaker for Voice1 {
             r.female_speaker,
             r.lines.iter().map(|l| l.text.clone()).collect(),
         ));
-        self.on_cpu.lock().push(r.on_cpu);
+        self.on_cpu
+            .lock()
+            .push((r.on_cpu, CARD_HELD.with(|c| c.get())));
         std::fs::create_dir_all(&r.out_dir)?;
         let mut out = Vec::new();
         for (i, l) in r.lines.iter().enumerate() {
@@ -121,6 +124,17 @@ impl Speaker for Voice1 {
 thread_local! {
     /// What the card's turn says it is short of, in this test.
     static SHORT_CARD: std::cell::RefCell<Option<crate::runtime::Shortage>> = const { std::cell::RefCell::new(None) };
+    /// Whether a turn on the card is held now, in this test.
+    static CARD_HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A turn on the card, held until dropped.
+struct Held;
+
+impl Drop for Held {
+    fn drop(&mut self) {
+        CARD_HELD.with(|c| c.set(false));
+    }
 }
 
 /// Reads a `.docx` as fixed Markdown once "Pandoc" is in, counting its readings; one named
@@ -773,7 +787,23 @@ async fn a_card_short_of_memory_speaks_on_the_processor_and_says_why() {
     );
     let asked = rig.voice.on_cpu.lock().clone();
     assert!(
-        !asked.is_empty() && asked.iter().all(|&cpu| cpu),
-        "never on the card: {asked:?}"
+        !asked.is_empty() && asked.iter().all(|&(cpu, held)| cpu && !held),
+        "on the processor, the card given back first: {asked:?}"
     );
+
+    // With room on the card: on it, the turn held while the voice speaks.
+    SHORT_CARD.with(|s| *s.borrow_mut() = None);
+    rig.voice.on_cpu.lock().clear();
+    let run = rig
+        .service
+        .submit_for(&PlanInput::Text("Another line to read.".into()), &o)
+        .unwrap();
+    let done = finished(&rig.service, &run.id).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    let asked = rig.voice.on_cpu.lock().clone();
+    assert!(
+        !asked.is_empty() && asked.iter().all(|&(cpu, held)| !cpu && held),
+        "{asked:?}"
+    );
+    assert!(!CARD_HELD.with(|c| c.get()), "given back when done");
 }

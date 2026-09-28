@@ -427,9 +427,10 @@ mod imp {
     };
     use windows_sys::Win32::Foundation::{LocalFree, GENERIC_ALL};
     use windows_sys::Win32::Security::Authorization::{
-        ConvertStringSidToSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
-        TreeSetNamedSecurityInfoW, EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE,
-        SE_FILE_OBJECT, TREE_SEC_INFO_SET, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
+        ConvertStringSidToSidW, GetNamedSecurityInfoW, ProgressInvokeNever, SetEntriesInAclW,
+        SetNamedSecurityInfoW, TreeResetNamedSecurityInfoW, TreeSetNamedSecurityInfoW,
+        EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, TREE_SEC_INFO_SET,
+        TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
         AclSizeInformation, AddMandatoryAce, CreateRestrictedToken, CreateWellKnownSid, EqualSid,
@@ -590,7 +591,9 @@ mod imp {
 
     /// Gives `dir` and all it holds to the person, SYSTEM, the administrators and `sid` alone:
     /// its access list is set anew, no longer inheriting its parent's (which may let every user
-    /// of the computer in), and what it holds inherits that.
+    /// of the computer in), and everything it holds is reset to inherit that and only that. A
+    /// file or folder with permissions of its own (granted to more, or kept from inheriting)
+    /// loses them.
     pub(super) fn own(dir: &Path, sid: &str) -> Result<()> {
         let token = own_token()?;
         let user_info = token_info(token.as_raw_handle() as HANDLE, TokenUser)?;
@@ -605,13 +608,17 @@ mod imp {
         let path = wide(dir.as_os_str());
         // SAFETY: the list was made above and is freed after.
         let err = unsafe {
-            let err = SetNamedSecurityInfoW(
+            let err = TreeResetNamedSecurityInfoW(
                 path.as_ptr(),
                 SE_FILE_OBJECT,
                 DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
                 acl,
+                std::ptr::null(),
+                0,
+                None,
+                ProgressInvokeNever,
                 std::ptr::null(),
             );
             LocalFree(acl as *mut c_void);
@@ -1407,6 +1414,24 @@ mod tests {
         std::fs::create_dir_all(&a).unwrap();
         std::fs::create_dir_all(&b).unwrap();
         std::fs::write(b.join("pending.txt"), "b's change").unwrap();
+        // Permissions of their own inside it, as a copy or a check could leave: a file granted
+        // to every user, and a folder kept from inheriting, open to everyone.
+        let icacls = |target: &Path, args: &[&str]| {
+            let done = std::process::Command::new("icacls")
+                .arg(target)
+                .args(args)
+                .output()
+                .unwrap();
+            assert!(done.status.success(), "{done:?}");
+        };
+        let open = b.join("open.txt");
+        std::fs::write(&open, "b's open file").unwrap();
+        icacls(&open, &["/grant", "*S-1-5-32-545:F"]);
+        let kept = b.join("kept");
+        std::fs::create_dir_all(&kept).unwrap();
+        icacls(&kept, &["/inheritance:r", "/grant:r", "*S-1-1-0:(OI)(CI)F"]);
+        let inner = kept.join("inner.txt");
+        std::fs::write(&inner, "b's kept file").unwrap();
         let (wa, wb) = (prepared(&a), prepared(&b));
         assert_ne!(wa.0.sid(), wb.0.sid());
         assert_ne!(wa.0.caches, wb.0.caches);
@@ -1414,7 +1439,7 @@ mod tests {
 
         let theirs = b.join("pending.txt");
         let cache = wb.0.caches.join("tmp").join("cached.txt");
-        for target in [&theirs, &cache] {
+        for target in [&theirs, &cache, &open, &inner] {
             assert!(!target.display().to_string().contains(' '));
             let (code, out) = run("cmd", &["/c", &format!("type {}", target.display())], &a);
             assert_ne!(code, 0, "reading {} must fail: {out}", target.display());
@@ -1428,6 +1453,11 @@ mod tests {
         }
         assert_eq!(std::fs::read_to_string(&theirs).unwrap(), "b's change");
         assert_eq!(std::fs::read_to_string(&cache).unwrap(), "b's cache");
+        assert_eq!(std::fs::read_to_string(&open).unwrap(), "b's open file");
+        assert_eq!(std::fs::read_to_string(&inner).unwrap(), "b's kept file");
+        // B's own checks still reach them.
+        let (code, out) = run("cmd", &["/c", &format!("type {}", inner.display())], &b);
+        assert_eq!((code, out.trim()), (0, "b's kept file"));
         // Each writes its own.
         let (code, out) = run("cmd", &["/c", "echo mine> mine.txt"], &a);
         assert_eq!(code, 0, "{out}");

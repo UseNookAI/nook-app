@@ -1483,16 +1483,24 @@ impl FlowService {
         // Short even with every idle engine unloaded (pinned models stay, or another program
         // holds the card): the voice speaks on the processor, slower but never paging through
         // system memory, and the card goes back to the rest at once.
-        let (turn, note) = match &turn.short {
-            Some(short) if facts.voice_backend != "cpu" => {
-                let note = format!(
+        let note = turn
+            .short
+            .as_ref()
+            .filter(|_| facts.voice_backend != "cpu")
+            .map(|short| {
+                format!(
                     "{}, so the voice ran on the processor instead, which is slower.",
                     short.said("the voice")
-                );
+                )
+            });
+        let turn = match &note {
+            Some(note) => {
                 tracing::info!("Run {id}: {note}");
-                (None, Some(note))
+                // Given back now, before the voice speaks: not held until it is done.
+                drop(turn);
+                None
             }
-            _ => (Some(turn), None),
+            None => Some(turn),
         };
         let on_cpu = Request {
             on_cpu: true,
