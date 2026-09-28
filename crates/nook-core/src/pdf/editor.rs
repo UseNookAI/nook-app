@@ -29,6 +29,7 @@ use image::ImageEncoder;
 use parking_lot::Mutex;
 use pdfium_render::prelude::*;
 use serde::{Deserialize, Serialize};
+use tokio_util::sync::CancellationToken;
 
 use super::fontmatch::{self, Kind};
 use super::fonts::{self, FontTraits, SystemFonts};
@@ -182,6 +183,26 @@ pub struct PdfEditor {
     /// Open documents with changes not saved yet, counted by the engine's thread after each job,
     /// so an automatic update waits for them ([`BusyWork`](crate::busy::BusyWork)).
     unsaved: Arc<AtomicUsize>,
+    /// Changes asked for and not made yet: a document is only unsaved once its first change is
+    /// done, and closing Nook while it is being made asks first too.
+    changing: Arc<AtomicUsize>,
+}
+
+/// One change counted in [`PdfEditor::changing`] from before it is queued until the engine's
+/// thread is done with it (or it could not be queued), whatever became of whoever asked.
+struct Changing(Arc<AtomicUsize>);
+
+impl Changing {
+    fn new(count: &Arc<AtomicUsize>) -> Changing {
+        count.fetch_add(1, Ordering::SeqCst);
+        Changing(count.clone())
+    }
+}
+
+impl Drop for Changing {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 impl PdfEditor {
@@ -191,6 +212,7 @@ impl PdfEditor {
             jobs: Mutex::new(None),
             next: AtomicU64::new(1),
             unsaved: Arc::new(AtomicUsize::new(0)),
+            changing: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -233,8 +255,7 @@ impl PdfEditor {
                 };
                 while let Ok(job) = rx.recv() {
                     job(&mut engine);
-                    let count = engine.docs.values().filter(|d| d.dirty).count();
-                    unsaved.store(count, Ordering::SeqCst);
+                    unsaved.store(engine.unsaved(), Ordering::SeqCst);
                 }
             })
             .context("Could not start the PDF engine's thread")?;
@@ -260,6 +281,23 @@ impl PdfEditor {
         answer
             .await
             .map_err(|_| anyhow!("The PDF engine stopped."))?
+    }
+
+    /// `work` that changes a document: counted in [`PdfEditor::changing`] until it is done and
+    /// the document counted unsaved, so there is no moment when closing Nook would not ask.
+    async fn change<T: Send + 'static>(
+        &self,
+        work: impl FnOnce(&mut Engine) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
+        let changing = Changing::new(&self.changing);
+        let unsaved = self.unsaved.clone();
+        self.call(move |e| {
+            let done = work(e);
+            unsaved.store(e.unsaved(), Ordering::SeqCst);
+            drop(changing);
+            done
+        })
+        .await
     }
 
     /// Opens a PDF (read into memory).
@@ -304,14 +342,14 @@ impl PdfEditor {
         align: Align,
     ) -> Result<Replaced> {
         let id = id.to_string();
-        self.call(move |e| e.replace(&id, block, texts, align))
+        self.change(move |e| e.replace(&id, block, texts, align))
             .await
     }
 
     /// Takes the last edit back.
     pub async fn undo(&self, id: &str) -> Result<PdfDoc> {
         let id = id.to_string();
-        self.call(move |e| e.undo(&id)).await
+        self.change(move |e| e.undo(&id)).await
     }
 
     /// Saves to `to`, or beside the original as "<name> (edited).pdf".
@@ -322,14 +360,35 @@ impl PdfEditor {
 
     /// A PDF's text, page by page and line by line, as PDFium reads it out (in the order the
     /// PDF draws it, which is the reading order of most documents); a page with no text (a scan)
-    /// is read by Windows' text recognition. For the document converter.
-    pub async fn text_lines(&self, path: &Path) -> Result<Vec<PageText>> {
-        let path = path.to_path_buf();
-        self.call(move |e| e.text_lines(&path)).await
+    /// is read by Windows' text recognition. For the document converter; `cancel` stops it
+    /// between pages.
+    pub async fn text_lines(
+        &self,
+        path: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<PageText>> {
+        let (path, cancel) = (path.to_path_buf(), cancel.clone());
+        self.call(move |e| e.text_lines(&path, None, &cancel))
+            .await
+            .map(|(pages, _)| pages)
+    }
+
+    /// The text of the first `pages` pages of a PDF, as [`PdfEditor::text_lines`] reads it, and
+    /// how many pages it has: for a quick look at a long one.
+    pub async fn text_sample(
+        &self,
+        path: &Path,
+        pages: usize,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<PageText>, usize)> {
+        let (path, cancel) = (path.to_path_buf(), cancel.clone());
+        self.call(move |e| e.text_lines(&path, Some(pages), &cancel))
+            .await
     }
 
     /// A PDF's pages drawn at `dpi` and written as `to` pictures (a format id): `one` when it
-    /// has one page, else `<dir>/<name> <n>.<ext>`. Returns what was written.
+    /// has one page, else `<dir>/<name> <n>.<ext>`. Returns what was written. `cancel` stops it
+    /// between pages, the pictures written so far removed.
     pub async fn page_pictures(
         &self,
         path: &Path,
@@ -337,27 +396,31 @@ impl PdfEditor {
         dpi: f32,
         one: &Path,
         dir: &Path,
+        cancel: &CancellationToken,
     ) -> Result<Vec<PathBuf>> {
-        let (path, to, one, dir) = (
+        let (path, to, one, dir, cancel) = (
             path.to_path_buf(),
             to.to_string(),
             one.to_path_buf(),
             dir.to_path_buf(),
+            cancel.clone(),
         );
-        self.call(move |e| e.page_pictures(&path, &to, dpi, &one, &dir))
+        self.call(move |e| e.page_pictures(&path, &to, dpi, &one, &dir, &cancel))
             .await
     }
 
     /// Pictures on the pages of a new PDF, one each, fitted to an A4 page turned their way;
-    /// `work` is for pictures made JPEG on the way (a JPEG goes in as it is).
+    /// `work` is for pictures made JPEG on the way (a JPEG goes in as it is). `cancel` stops it
+    /// between pictures, before anything is written to `out`.
     pub async fn pictures_pdf(
         &self,
         pictures: Vec<PathBuf>,
         out: &Path,
         work: &Path,
+        cancel: &CancellationToken,
     ) -> Result<()> {
-        let (out, work) = (out.to_path_buf(), work.to_path_buf());
-        self.call(move |e| e.pictures_pdf(&pictures, &out, &work))
+        let (out, work, cancel) = (out.to_path_buf(), work.to_path_buf(), cancel.clone());
+        self.call(move |e| e.pictures_pdf(&pictures, &out, &work, &cancel))
             .await
     }
 
@@ -376,7 +439,9 @@ impl PdfEditor {
 
 impl crate::busy::BusyWork for PdfEditor {
     fn busy_with(&self) -> Option<String> {
+        let changing = self.changing.load(Ordering::SeqCst);
         match self.unsaved.load(Ordering::SeqCst) {
+            0 if changing > 0 => Some("a change is being made to a PDF".to_string()),
             0 => None,
             1 => Some("a PDF has changes that are not saved yet".to_string()),
             n => Some(format!("{n} PDFs have changes that are not saved yet")),
@@ -864,25 +929,9 @@ impl Engine {
         };
         for way in [Way::InPlace, Way::Recoloured, Way::Over] {
             let tried = match (block.drawn.is_some(), way) {
-                (true, _) => self.replace_drawn(
-                    id,
-                    block.clone(),
-                    texts.clone(),
-                    align,
-                    way,
-                    snapshot.clone(),
-                ),
-                (false, Way::Over) => {
-                    self.replace_over(id, &block, &texts, align, &before, snapshot.clone())
-                }
-                (false, _) => self.replace_text(
-                    id,
-                    block.clone(),
-                    texts.clone(),
-                    align,
-                    way,
-                    snapshot.clone(),
-                ),
+                (true, _) => self.replace_drawn(id, block.clone(), texts.clone(), align, way),
+                (false, Way::Over) => self.replace_over(id, &block, &texts, align, &before),
+                (false, _) => self.replace_text(id, block.clone(), texts.clone(), align, way),
             };
             let done = match tried {
                 Ok(done) => done,
@@ -894,13 +943,28 @@ impl Engine {
             let after = self.page_drawing(id, block.page)?;
             let changed = changed_outside(&before, &after, &allowed);
             if changed <= tolerance {
+                // Kept: only now does the document before it become an undo step.
+                let doc = self.doc(id)?;
+                let dropped = doc.undo.push(snapshot);
+                let mut done = done;
+                done.doc = doc.info();
+                if dropped > 0 {
+                    let lost = format!(
+                        "There was no room on the disk for older undo steps, so Undo now reaches back {dropped} edit{} less.",
+                        if dropped == 1 { "" } else { "s" }
+                    );
+                    done.note = Some(match done.note {
+                        Some(note) => format!("{note} {lost}"),
+                        None => lost,
+                    });
+                }
                 return Ok(done);
             }
             tracing::warn!(
                 "Changing text on page {} altered {changed} pixels elsewhere on it ({way:?}); taking it back",
                 block.page + 1
             );
-            self.take_back(id, block.page, was_dirty)?;
+            self.take_back(id, block.page, was_dirty, snapshot.clone())?;
         }
         bail!("Nook could not change that text without spoiling the rest of the page, so the page is as it was.")
     }
@@ -925,15 +989,11 @@ impl Engine {
         Ok(())
     }
 
-    /// Takes back the edit just made to `page`, which spoiled it: the document as it was, and its
-    /// count of edits, the page's version and whether it was saved, so the same pick can be put
-    /// in another way.
-    fn take_back(&mut self, id: &str, page: u32, was_dirty: bool) -> Result<()> {
-        let bytes = self
-            .doc(id)?
-            .undo
-            .pop()?
-            .ok_or_else(|| anyhow!("The edit could not be taken back."))?;
+    /// Takes back the edit just made to `page`, which spoiled it: the document as it was
+    /// (`bytes`, from before the edit, never Undo's, which the edit is not in yet), and its count
+    /// of edits, the page's version and whether it was saved, so the same pick can be put in
+    /// another way.
+    fn take_back(&mut self, id: &str, page: u32, was_dirty: bool, bytes: Vec<u8>) -> Result<()> {
         self.reload(id, bytes)?;
         let doc = self.doc(id)?;
         doc.edits = doc.edits.saturating_sub(1);
@@ -944,8 +1004,7 @@ impl Engine {
         Ok(())
     }
 
-    /// The edit in the page's own text objects (see [`Engine::replace`]); `snapshot`, the
-    /// document before it, is kept for Undo.
+    /// The edit in the page's own text objects (see [`Engine::replace`]).
     fn replace_text(
         &mut self,
         id: &str,
@@ -953,7 +1012,6 @@ impl Engine {
         texts: Vec<String>,
         align: Align,
         way: Way,
-        snapshot: Vec<u8>,
     ) -> Result<Replaced> {
         let candidates_for = {
             let fonts = self.system_fonts().clone();
@@ -1121,7 +1179,6 @@ impl Engine {
         page.regenerate_content().map_err(pdf_error)?;
         drop(page);
 
-        doc.undo.push(snapshot);
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1144,7 +1201,6 @@ impl Engine {
         texts: Vec<String>,
         align: Align,
         way: Way,
-        snapshot: Vec<u8>,
     ) -> Result<Replaced> {
         let drawn = block
             .drawn
@@ -1390,7 +1446,6 @@ impl Engine {
         page.regenerate_content().map_err(pdf_error)?;
         drop(page);
 
-        doc.undo.push(snapshot);
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1413,7 +1468,6 @@ impl Engine {
         texts: &[String],
         align: Align,
         before: &Drawing,
-        snapshot: Vec<u8>,
     ) -> Result<Replaced> {
         let candidates_for = {
             let fonts = self.system_fonts().clone();
@@ -1509,7 +1563,6 @@ impl Engine {
         page.regenerate_content().map_err(pdf_error)?;
         drop(page);
 
-        doc.undo.push(snapshot);
         doc.edits += 1;
         doc.dirty = true;
         if let Some(v) = doc.versions.get_mut(page_index) {
@@ -1519,6 +1572,11 @@ impl Engine {
             doc: doc.info(),
             note: Some(notes.join(" ")),
         })
+    }
+
+    /// Open documents with changes not saved yet.
+    fn unsaved(&self) -> usize {
+        self.docs.values().filter(|d| d.dirty).count()
     }
 
     fn undo(&mut self, id: &str) -> Result<PdfDoc> {
@@ -1541,13 +1599,23 @@ impl Engine {
         Ok(doc.info())
     }
 
-    fn text_lines(&mut self, path: &Path) -> Result<Vec<PageText>> {
+    /// The text of the pages, the first `limit` of them when given, and how many there are.
+    fn text_lines(
+        &mut self,
+        path: &Path,
+        limit: Option<usize>,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<PageText>, usize)> {
         let document = self
             .pdfium
             .load_pdf_from_file(path, None)
             .map_err(pdf_error)?;
+        let count = document.pages().len() as usize;
         let mut pages = Vec::new();
-        for page in document.pages().iter() {
+        for page in document.pages().iter().take(limit.unwrap_or(usize::MAX)) {
+            if cancel.is_cancelled() {
+                return Err(crate::flow::Stopped.into());
+            }
             let mut lines = Vec::new();
             {
                 let text = page.text().map_err(pdf_error)?;
@@ -1592,7 +1660,7 @@ impl Engine {
             }
             pages.push(PageText { lines });
         }
-        Ok(pages)
+        Ok((pages, count))
     }
 
     fn page_pictures(
@@ -1602,6 +1670,7 @@ impl Engine {
         dpi: f32,
         one: &Path,
         dir: &Path,
+        cancel: &CancellationToken,
     ) -> Result<Vec<PathBuf>> {
         let document = self
             .pdfium
@@ -1619,6 +1688,15 @@ impl Engine {
         }
         let mut written = Vec::new();
         for (i, page) in document.pages().iter().enumerate() {
+            if cancel.is_cancelled() {
+                for file in &written {
+                    let _ = std::fs::remove_file(file);
+                }
+                if count > 1 {
+                    let _ = std::fs::remove_dir(dir);
+                }
+                return Err(crate::flow::Stopped.into());
+            }
             let width = ((page.width().value * dpi / 72.0).round() as i32).clamp(16, 8000);
             let config = PdfRenderConfig::new()
                 .set_target_width(width)
@@ -1640,9 +1718,18 @@ impl Engine {
         Ok(written)
     }
 
-    fn pictures_pdf(&mut self, pictures: &[PathBuf], out: &Path, work: &Path) -> Result<()> {
+    fn pictures_pdf(
+        &mut self,
+        pictures: &[PathBuf],
+        out: &Path,
+        work: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<()> {
         let mut document = self.pdfium.create_new_pdf().map_err(pdf_error)?;
         for (i, file) in pictures.iter().enumerate() {
+            if cancel.is_cancelled() {
+                return Err(crate::flow::Stopped.into());
+            }
             let (picture, turned) = images::open_upright(file)?;
             let (w, h) = (picture.width() as f32, picture.height() as f32);
             let (pw, ph) = if w > h {
@@ -1693,6 +1780,9 @@ impl Engine {
             page.objects_mut()
                 .add_image_object(object)
                 .map_err(pdf_error)?;
+        }
+        if cancel.is_cancelled() {
+            return Err(crate::flow::Stopped.into());
         }
         document.save_to_file(out).map_err(pdf_error)?;
         Ok(())
@@ -3152,6 +3242,126 @@ q 60 200 80 60 re W n 0 0 1 rg 0 0 612 792 re f Q
         }
         let undone = editor.undo(&doc.id).await.unwrap();
         assert_eq!(undone.edits, 1);
+
+        // Closing Nook while the first change to a document is being made asks first, though
+        // nothing is unsaved yet: a slow job ahead of the change keeps it waiting meanwhile.
+        use crate::busy::BusyWork;
+        editor.close(&doc.id).await.unwrap();
+        editor.close(&original.id).await.unwrap();
+        let fresh = editor.open(&pdf).await.unwrap();
+        let line = editor
+            .pick(&fresh.id, 0, Area::Point { x: 100.0, y: 505.0 })
+            .await
+            .unwrap()
+            .block
+            .expect("the heading");
+        assert_eq!(editor.busy_with(), None);
+        let slow = editor.call(|_| {
+            std::thread::sleep(std::time::Duration::from_millis(600));
+            Ok(())
+        });
+        let change = editor.replace(&fresh.id, line, vec!["Changed".into()], Align::Left);
+        let asked = async {
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            editor.busy_with()
+        };
+        let (_, changed, asked) = tokio::join!(slow, change, asked);
+        changed.unwrap();
+        assert_eq!(asked.as_deref(), Some("a change is being made to a PDF"));
+        assert_eq!(
+            editor.busy_with().as_deref(),
+            Some("a PDF has changes that are not saved yet")
+        );
+    }
+
+    /// Stop, pressed while a long PDF becomes pictures, text or a PDF of pictures, is heeded
+    /// between pages, and what was written goes. `NOOK_TEST_PDFIUM` and `NOOK_TEST_OUT` as above:
+    /// `cargo test -p nook-core stops_between_pages -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore = "needs pdfium.dll"]
+    async fn stops_between_pages() {
+        let (dll, out) = (env("NOOK_TEST_PDFIUM"), env("NOOK_TEST_OUT"));
+        let out = out.join("stops");
+        let _ = std::fs::remove_dir_all(&out);
+        std::fs::create_dir_all(&out).unwrap();
+        const PAGES: usize = 40;
+        let mut objects = vec![
+            b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+            format!(
+                "<< /Type /Pages /Kids [{}] /Count {PAGES} >>",
+                (0..PAGES)
+                    .map(|i| format!("{} 0 R", 4 + 2 * i))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            )
+            .into_bytes(),
+            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"
+                .to_vec(),
+        ];
+        for i in 0..PAGES {
+            objects.push(
+                format!(
+                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {} 0 R /Resources << /Font << /F1 3 0 R >> >> >>",
+                    5 + 2 * i
+                )
+                .into_bytes(),
+            );
+            let text = format!(
+                "q 0.2 0.4 0.8 rg 60 60 492 672 re f Q BT /F1 24 Tf 1 1 1 rg 100 600 Td (Page {}) Tj ET",
+                i + 1
+            );
+            objects.push(stream("", text.as_bytes()));
+        }
+        let pdf = out.join("long.pdf");
+        std::fs::write(&pdf, pdf_of(&objects)).unwrap();
+        let editor = PdfEditor::new(move || Some(dll.clone()));
+
+        // Stopped once the first picture is written.
+        let (one, dir) = (out.join("long.png"), out.join("long pages"));
+        let cancel = CancellationToken::new();
+        let watch = {
+            let (dir, cancel) = (dir.clone(), cancel.clone());
+            tokio::spawn(async move {
+                while !std::fs::read_dir(&dir).is_ok_and(|mut d| d.next().is_some()) {
+                    tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+                }
+                cancel.cancel();
+            })
+        };
+        let started = std::time::Instant::now();
+        let made = editor
+            .page_pictures(&pdf, "png", 150.0, &one, &dir, &cancel)
+            .await;
+        watch.abort();
+        println!("stopped after {} ms", started.elapsed().as_millis());
+        assert!(
+            made.as_ref().is_err_and(|e| e.is::<crate::flow::Stopped>()),
+            "{made:?}"
+        );
+        assert!(!dir.exists(), "the pictures written went, and their folder");
+        assert!(!one.exists());
+
+        // Already stopped: nothing is read, and nothing written.
+        let stopped = CancellationToken::new();
+        stopped.cancel();
+        let read = editor.text_lines(&pdf, &stopped).await;
+        assert!(read.is_err_and(|e| e.is::<crate::flow::Stopped>()));
+        let all = editor
+            .text_lines(&pdf, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(all.len(), PAGES);
+        let png = out.join("page.png");
+        let small = out.join("small pages");
+        let pictures = editor
+            .page_pictures(&pdf, "png", 30.0, &png, &small, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(pictures.len(), PAGES);
+        let made = out.join("pictures.pdf");
+        let joined = editor.pictures_pdf(pictures, &made, &out, &stopped).await;
+        assert!(joined.is_err_and(|e| e.is::<crate::flow::Stopped>()));
+        assert!(!made.exists());
     }
 
     #[tokio::test]

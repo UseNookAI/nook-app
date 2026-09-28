@@ -51,7 +51,8 @@ $env:NOOK_TEST_PDFIUM = $dll
 $env:NOOK_TEST_OUT = $Out
 $tests = @(
   'pdf::editor::live::keeps_the_rest_of_the_page',
-  'pdf::editor::live::edits_text_in_a_picture'
+  'pdf::editor::live::edits_text_in_a_picture',
+  'pdf::editor::live::stops_between_pages'
 )
 foreach ($test in $tests) {
   Write-Host "==> $test"

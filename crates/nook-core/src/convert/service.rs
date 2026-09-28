@@ -22,7 +22,7 @@ use super::run::{self, Kit};
 use super::system;
 use crate::busy::BusyWork;
 use crate::events::{self, topic};
-use crate::flow::{Install, Reader, ReaderNeed, Stopped};
+use crate::flow::{Install, Reader, ReaderNeed, Sample, Stopped};
 use crate::home::Home;
 use crate::pdf::PdfEditor;
 use crate::runtime::{Backend, EngineComponent, RuntimeManager, StagedProgress};
@@ -652,14 +652,17 @@ impl ConvertService {
             self.update(id, |j| j.items[index].status = Status::Converting);
             let first = &inputs[0];
             let work = work_root.join(index.to_string());
+            // A name no file has yet: whatever is there after a stop is this run's, half made.
+            let out = free_path(&where_to(first), &name_of(first), target.ext);
             let result: Result<Vec<PathBuf>> = async {
                 let from = formats::of_path(first)
                     .ok_or_else(|| anyhow!("Nook does not read this file"))?;
-                let out = free_path(&where_to(first), &name_of(first), target.ext);
                 if inputs.len() > 1 {
                     std::fs::create_dir_all(&work)?;
-                    kit.pdf.pictures_pdf(inputs.clone(), &out, &work).await?;
-                    return Ok(vec![out]);
+                    kit.pdf
+                        .pictures_pdf(inputs.clone(), &out, &work, cancel)
+                        .await?;
+                    return Ok(vec![out.clone()]);
                 }
                 let steps = routes::route(from, target, &have)
                     .ok_or_else(|| anyhow!("{} cannot become {}", from.name, target.name))?;
@@ -667,6 +670,19 @@ impl ConvertService {
             }
             .await;
             let _ = std::fs::remove_dir_all(&work);
+            // Stop pressed while the last of it was made: stopped all the same, and what it wrote
+            // goes rather than turn up as a result no one waited for.
+            let result = match result {
+                Ok(outputs) if cancel.is_cancelled() => {
+                    remove_made(&outputs);
+                    Err(Stopped.into())
+                }
+                Err(e) if e.is::<Stopped>() || cancel.is_cancelled() => {
+                    remove_made(std::slice::from_ref(&out));
+                    Err(e)
+                }
+                other => other,
+            };
             match result {
                 Ok(outputs) => self.update(id, |j| {
                     let i = &mut j.items[index];
@@ -708,6 +724,20 @@ impl ConvertService {
 
     pub fn shutdown(&self) {
         self.stopping.cancel();
+    }
+}
+
+/// Removes files a stopped conversion wrote, and the folder a PDF's pages went into when it is
+/// left empty.
+fn remove_made(files: &[PathBuf]) {
+    for file in files {
+        let _ = std::fs::remove_file(file);
+        if let Some(dir) = file.parent().filter(|d| {
+            d.file_name()
+                .is_some_and(|n| n.to_string_lossy().ends_with(" pages"))
+        }) {
+            let _ = std::fs::remove_dir(dir);
+        }
     }
 }
 
@@ -782,9 +812,18 @@ impl Reader for ConvertService {
         let md = formats::by_id("md").expect("Markdown is a format");
         let steps = routes::route(from, md, &self.have())
             .ok_or_else(|| anyhow!("Nook cannot read the words of a {} yet.", from.name))?;
-        let _turn = tokio::select! {
-            t = self.turn.lock() => t,
-            _ = cancel.cancelled() => return Err(Stopped.into()),
+        // Only Office, LibreOffice and Edge (one profile each) take turns with the conversions;
+        // Pandoc runs alongside, and PDFium has a queue of its own.
+        let _turn = if steps
+            .iter()
+            .any(|s| matches!(s, Step::Office { .. } | Step::Print))
+        {
+            Some(tokio::select! {
+                t = self.turn.lock() => t,
+                _ = cancel.cancelled() => return Err(Stopped.into()),
+            })
+        } else {
+            None
         };
         let out = work.join("words.md");
         let written = run::convert(&self.kit(), &steps, path, &out, work, cancel).await;
@@ -801,7 +840,26 @@ impl Reader for ConvertService {
         let _ = std::fs::remove_dir_all(work);
         text
     }
+
+    async fn sample(&self, path: &Path, cancel: &CancellationToken) -> Result<Option<Sample>> {
+        if formats::of_path(path).is_none_or(|f| f.id != "pdf") || !self.installed(Engine::Pdf) {
+            return Ok(None);
+        }
+        let (pages, of) = self
+            .kit()
+            .pdf
+            .text_sample(path, SAMPLE_PAGES, cancel)
+            .await?;
+        Ok(Some(Sample {
+            text: super::pdftext::write(&pages, false),
+            pages: pages.len(),
+            of,
+        }))
+    }
 }
+
+/// The pages of a PDF a preview reads.
+const SAMPLE_PAGES: usize = 3;
 
 impl BusyWork for ConvertService {
     fn busy_with(&self) -> Option<String> {

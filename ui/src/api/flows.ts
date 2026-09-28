@@ -62,6 +62,8 @@ export interface Order {
 export interface Peek {
   language: string | null;
   words: number;
+  /** The words estimated from a long PDF's first pages. */
+  estimated: boolean;
 }
 
 /** One stretch of speech: where it is in the track (seconds), what was said, and its translation once made. */

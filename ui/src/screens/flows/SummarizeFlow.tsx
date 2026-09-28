@@ -200,7 +200,7 @@ export function SummarizeFlow({
             <div className="fl-form__notes">
               <div className="caption text-tertiary fl-form__model">
                 <span>
-                  {words > 0 ? `${wordsText(words)}. ` : ""}
+                  {words > 0 ? `${wordsText(words, mode === "FILE" && peek?.estimated)}. ` : ""}
                   {plan.spokenWith}
                 </span>
                 {plan.modelName && <TextLink text="Change" onClick={onOpenModels} />}

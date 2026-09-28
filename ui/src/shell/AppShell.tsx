@@ -66,7 +66,9 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
   // Alt+F4, the title bar's close button and the in-app one all come here: anything unsaved or
   // running (edited files, an edited PDF, a Nooklet, a download) is asked about first.
   const requestWindowClose = useCallback(async () => {
-    const reasons = [...leaveReasons(), ...(await quitCheck().catch(() => [] as string[]))];
+    // A core that cannot say what is running is asked about too, not taken for an idle one.
+    const core = await quitCheck().catch(() => ["Nook could not check what is still running"]);
+    const reasons = [...leaveReasons(), ...core];
     setExitReasons(reasons);
     if (reasons.length > 0 || busyKeys().length > 0) setShowExitDialog(true);
     else quit().catch(() => {});

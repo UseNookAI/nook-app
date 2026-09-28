@@ -21,6 +21,16 @@ pub struct ReaderNeed {
     pub bytes: u64,
 }
 
+/// The words of a document's first pages, for a preview of a long one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Sample {
+    pub text: String,
+    /// The pages `text` is from.
+    pub pages: usize,
+    /// The pages the document has.
+    pub of: usize,
+}
+
 /// What reads documents into words.
 #[async_trait]
 pub trait Reader: Send + Sync {
@@ -30,6 +40,12 @@ pub trait Reader: Send + Sync {
     /// The words of `path`, as Markdown where the document has headings, lists and tables.
     /// `work` is scratch space the caller removes.
     async fn read(&self, path: &Path, work: &Path, cancel: &CancellationToken) -> Result<String>;
+
+    /// The words of the first pages of `path`, when there is a quicker way to them than
+    /// reading it all (a PDF: a long scan takes minutes to recognise); None when there is not.
+    async fn sample(&self, _path: &Path, _cancel: &CancellationToken) -> Result<Option<Sample>> {
+        Ok(None)
+    }
 }
 
 /// The extensions read as they are, with no engine.

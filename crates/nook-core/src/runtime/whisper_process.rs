@@ -34,6 +34,11 @@ pub struct WhisperProcess {
 }
 
 impl WhisperProcess {
+    /// Whether it runs on the graphics card.
+    pub fn on_gpu(&self) -> bool {
+        self.gpu
+    }
+
     /// A speech engine for `model_file` run by `exe`, logging to `<log_dir>\<model_id>.log`.
     /// `gpu`: false passes `-ng` (no GPU). Picks the port; starts nothing.
     pub fn new(

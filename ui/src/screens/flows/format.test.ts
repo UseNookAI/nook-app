@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { runProgress, type Plan, type Run } from "../../api/flows";
-import { bytesText, defaultTarget, doneText, languageName, needsText, splitPath, stageText, translationText, voiceText } from "./format";
+import { bytesText, defaultTarget, doneText, languageName, needsText, splitPath, stageText, translationText, voiceText, wordsText } from "./format";
 
 const languages = [
   { code: "en", name: "English" },
@@ -103,5 +103,14 @@ describe("flows wording", () => {
     expect(runProgress(run({ status: "RUNNING", stage: "SPEAKING", done: 1, total: 2 }))).toBeCloseTo(0.75);
     expect(runProgress(run({ status: "QUEUED" }))).toBe(0);
     expect(splitPath("C:\\a\\b.mp3")).toEqual({ name: "b.mp3", folder: "C:\\a" });
+  });
+});
+
+describe("a document's length", () => {
+  it("is counted, or estimated from a long PDF's first pages and rounded", () => {
+    expect(wordsText(1)).toBe("1 word");
+    expect(wordsText(2480)).toBe("2,480 words");
+    expect(wordsText(12_437, true)).toBe("About 12,400 words");
+    expect(wordsText(640, true)).toBe("About 640 words");
   });
 });

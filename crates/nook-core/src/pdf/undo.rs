@@ -58,8 +58,9 @@ impl UndoStack {
     }
 
     /// Keeps `bytes`, the document before an edit. The oldest go when there are more than the
-    /// depth, and to disk when memory is over the budget; one that cannot be written is dropped.
-    pub fn push(&mut self, bytes: Vec<u8>) {
+    /// depth, and to disk when memory is over the budget. An older one that cannot be written is
+    /// dropped; this one never is, and stays in memory instead. Returns how many were dropped.
+    pub fn push(&mut self, bytes: Vec<u8>) -> usize {
         self.in_memory += bytes.len();
         self.items.push_back(Snapshot::Memory(bytes));
         while self.items.len() > self.depth {
@@ -67,7 +68,7 @@ impl UndoStack {
                 self.forget(old);
             }
         }
-        self.spill();
+        self.spill()
     }
 
     /// The document before the last edit, or None when there is nothing to undo.
@@ -87,8 +88,10 @@ impl UndoStack {
         }
     }
 
-    /// Moves the oldest snapshots held in memory to disk until memory is within the budget.
-    fn spill(&mut self) {
+    /// Moves the oldest snapshots held in memory to disk until memory is within the budget,
+    /// returning how many could not be written and were dropped.
+    fn spill(&mut self) -> usize {
+        let mut dropped = 0;
         while self.in_memory > self.budget {
             let Some(i) = self
                 .items
@@ -105,13 +108,24 @@ impl UndoStack {
             self.in_memory -= bytes.len();
             match self.write(&bytes) {
                 Ok(path) => self.items[i] = Snapshot::File(path),
+                Err(e) if i + 1 == self.items.len() => {
+                    // The step just taken: held over the budget rather than lost.
+                    tracing::warn!(
+                        "The last undo step could not go to disk, so it stays in memory: {e:#}"
+                    );
+                    self.in_memory += bytes.len();
+                    self.items[i] = Snapshot::Memory(bytes);
+                    break;
+                }
                 Err(e) => {
                     // Undo reaches back less far rather than holding more.
                     tracing::warn!("An undo step could not go to disk, so it is dropped: {e:#}");
                     self.items.remove(i);
+                    dropped += 1;
                 }
             }
         }
+        dropped
     }
 
     fn write(&mut self, bytes: &[u8]) -> Result<PathBuf> {
@@ -201,7 +215,7 @@ mod tests {
             0,
             "read steps are removed"
         );
-        u.push(vec![9; 40]);
+        assert_eq!(u.push(vec![9; 40]), 0);
         assert_eq!(
             u.memory(),
             0,
@@ -209,5 +223,23 @@ mod tests {
         );
         drop(u);
         assert!(!dir.exists(), "closing removes the folder");
+    }
+
+    #[test]
+    fn with_no_room_on_disk_older_steps_go_and_the_last_one_stays() {
+        let tmp = tempfile::tempdir().unwrap();
+        // A file where the folder would be: nothing can be written there.
+        let dir = tmp.path().join("doc");
+        std::fs::write(&dir, b"in the way").unwrap();
+        let mut u = UndoStack::with_limits(dir, 10, 25);
+        assert_eq!(u.push(vec![1; 10]), 0);
+        assert_eq!(u.push(vec![2; 10]), 0);
+        assert_eq!(u.push(vec![3; 10]), 1, "the oldest could not go to disk");
+        assert_eq!(u.len(), 2);
+        assert_eq!(u.push(vec![4; 40]), 2, "both older ones went");
+        assert_eq!(u.len(), 1);
+        assert_eq!(u.memory(), 40, "the last one is held over the budget");
+        assert_eq!(u.pop().unwrap(), Some(vec![4; 40]));
+        assert_eq!(u.pop().unwrap(), None);
     }
 }

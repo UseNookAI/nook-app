@@ -43,10 +43,14 @@ import { Spinner } from "../../components/Spinner";
 import { DownloadLine } from "./DownloadLine";
 import { splitPath } from "./format";
 import { useFileDrop } from "./useFileDrop";
+import { registerLeaveCheck } from "../../shell/unsaved";
 import "./pdf.css";
 
 /** The open document, kept while the page is left and opened again. */
 let rememberedDoc: string | null = null;
+/** Whether the edit box holds a change not put in yet; closing the window asks about it. */
+let draftOpen = false;
+registerLeaveCheck("pdf", () => (draftOpen ? ["A change typed into a PDF is not put in yet"] : []));
 
 /** The widest a page is drawn at 100%, in CSS pixels. */
 const MAX_PAGE_WIDTH = 980;
@@ -126,6 +130,15 @@ export function PdfFlow({ say, onOpenChange }: { say: (message: string) => void;
     onOpenChange?.(doc != null);
   }, [doc?.id, doc, onOpenChange]);
   useEffect(() => () => onOpenChange?.(false), [onOpenChange]);
+  useEffect(() => {
+    draftOpen = editing != null && editing.text.replace(/\r/g, "") !== editing.block.lines.map((l) => l.text).join("\n");
+  }, [editing]);
+  useEffect(
+    () => () => {
+      draftOpen = false;
+    },
+    [],
+  );
 
   // The width a page gets at 100%: the panel's, less its margins.
   useLayoutEffect(() => {

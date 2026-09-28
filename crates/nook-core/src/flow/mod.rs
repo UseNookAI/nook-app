@@ -48,7 +48,7 @@ pub mod translator;
 pub mod voice_engine;
 pub mod voices;
 
-pub use reader::{Reader, ReaderNeed};
+pub use reader::{Reader, ReaderNeed, Sample};
 pub use runtime::{Facts, FlowRuntime};
 pub use service::{
     FlowService, Install, Need, Order, Peek, Plan, PlanInput, Run, Source, Stage, Status,

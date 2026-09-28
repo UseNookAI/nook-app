@@ -139,8 +139,8 @@ pub use hugging_face_hub::{Fit, HubFile, HuggingFaceHub, Repo, Variant};
 pub use image_engine::{ImageEngine, ImageRequest, ImageResult};
 pub use inference_client::InferenceClient;
 pub use manager::{
-    AdmissionError, EngineInfo, Lease, ModelLoadError, Readiness, RuntimeEvent, RuntimeManager,
-    RuntimeOptions, SpeechInfo, Status,
+    AdmissionError, EngineInfo, GpuTurn, Lease, ModelLoadError, Readiness, RuntimeEvent,
+    RuntimeManager, RuntimeOptions, SpeechInfo, Status,
 };
 pub use model_catalog::{Artifact, CatalogModel, ModelCatalog};
 pub use model_registry::{LocalModel, ModelRegistry, CODE_WORKER, UNSUPPORTED};

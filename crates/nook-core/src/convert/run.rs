@@ -128,11 +128,12 @@ pub async fn convert(
                 let dir = out.with_file_name(format!("{name} pages"));
                 return kit
                     .pdf
-                    .page_pictures(&current, to, PAGE_DPI, out, &dir)
+                    .page_pictures(&current, to, PAGE_DPI, out, &dir, cancel)
                     .await;
             }
             Step::PdfText { plain } => {
-                let pages = kit.pdf.text_lines(&current).await?;
+                let pages = kit.pdf.text_lines(&current, cancel).await?;
+                stop_if(cancel)?;
                 let text = pdftext::write(&pages, *plain);
                 if text.trim().is_empty() {
                     bail!("This PDF has no text Nook can read: its pages are pictures Windows could not read either");
@@ -142,7 +143,7 @@ pub async fn convert(
             }
             Step::ImagesToPdf => {
                 kit.pdf
-                    .pictures_pdf(vec![current.clone()], &target, work)
+                    .pictures_pdf(vec![current.clone()], &target, work, cancel)
                     .await?;
             }
             Step::Image { to } => {

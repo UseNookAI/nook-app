@@ -189,7 +189,7 @@ export function ReadAloudFlow({
           {plan && (
             <div className="fl-form__notes">
               <div className={plan.noVoice ? "caption text-warning" : "caption text-tertiary"}>
-                {peeking ? "Reading the text… " : words > 0 ? `${wordsText(words)}, ${listenText(words)} to listen. ` : ""}
+                {peeking ? "Reading the text… " : words > 0 ? `${wordsText(words, peek?.estimated)}, ${listenText(words)} to listen. ` : ""}
                 {plan.spokenWith}
               </div>
             </div>

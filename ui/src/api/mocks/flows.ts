@@ -946,10 +946,11 @@ export function registerFlowsMocks(): void {
   mock("flows_peek", async (a): Promise<Peek> => {
     await new Promise((r) => setTimeout(r, 400));
     const text = (a.text as string | null) ?? null;
-    if (text) return { language: guessLanguage(text), words: text.trim().split(/\s+/).filter(Boolean).length };
+    if (text) return { language: guessLanguage(text), words: text.trim().split(/\s+/).filter(Boolean).length, estimated: false };
     const input = (a.input as string | null) ?? "";
-    if (PANDOC.includes(extension(input)) && !installed.pandoc) return { language: null, words: 0 };
-    return { language: /[-_](de|tr|fr|es)\./.exec(input)?.[1] ?? "en", words: 2_480 };
+    if (PANDOC.includes(extension(input)) && !installed.pandoc) return { language: null, words: 0, estimated: false };
+    const pdf = extension(input) === "pdf";
+    return { language: /[-_](de|tr|fr|es)\./.exec(input)?.[1] ?? "en", words: pdf ? 12_400 : 2_480, estimated: pdf };
   });
   mock("flows_open_file", () => undefined);
   mock("flows_reveal_file", () => undefined);

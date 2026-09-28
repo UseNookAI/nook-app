@@ -42,6 +42,13 @@ pub struct Facts {
 }
 
 /// What a run asks of the runtime.
+/// A turn with the graphics card to itself, for as long as `hold` lives.
+pub struct Turn<'a> {
+    pub hold: Box<dyn Send + 'a>,
+    /// What the person reads when the card still had less free than the turn asked for.
+    pub short: Option<String>,
+}
+
 #[async_trait]
 pub trait FlowRuntime: Send + Sync {
     fn facts(&self) -> Facts;
@@ -54,14 +61,14 @@ pub trait FlowRuntime: Send + Sync {
     /// The chat model's reply to one batch, thinking off and removed.
     async fn chat(&self, model_id: &str, system: &str, user: &str) -> Result<String>;
 
-    /// Waits for the card (images and clips use it whole), frees every idle engine that is not
-    /// pinned (`need_bytes` only tells the log what was missing), and holds it until the
-    /// returned turn is dropped; None when `cancel` fired first.
+    /// Waits for the card (images, clips and every request on it use it too), frees every idle
+    /// engine that is not pinned, and holds it until the returned turn is dropped; None when
+    /// `cancel` fired first. The turn says when the card is still short of `need_bytes`.
     async fn gpu_turn<'a>(
         &'a self,
         need_bytes: u64,
         cancel: &CancellationToken,
-    ) -> Option<Box<dyn Send + 'a>>;
+    ) -> Option<Turn<'a>>;
 
     /// Downloads and installs an engine; false when stopped.
     async fn install_component(
@@ -186,9 +193,14 @@ impl FlowRuntime for RuntimeManager {
         &'a self,
         need_bytes: u64,
         cancel: &CancellationToken,
-    ) -> Option<Box<dyn Send + 'a>> {
-        let turn = RuntimeManager::gpu_turn(self, need_bytes, "the voice engine", cancel).await?;
-        Some(Box::new(turn))
+    ) -> Option<Turn<'a>> {
+        let mut turn =
+            RuntimeManager::gpu_turn(self, need_bytes, "the voice engine", cancel).await?;
+        let short = turn.short.take();
+        Some(Turn {
+            hold: Box::new(turn),
+            short,
+        })
     }
 
     async fn install_component(

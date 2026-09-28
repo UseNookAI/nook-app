@@ -1,17 +1,31 @@
 //! Limits Windows itself puts on the commands a worker runs (its checks: tests, builds, scripts in
 //! the repository). The allowlist says which commands may start, but what a command then does is
 //! its own code: a test the worker wrote, a build script, a package's install step. So each runs as
-//! a low-integrity process with its privileges dropped: Windows lets it write only where things
-//! are labelled low, which Nook makes the scratch copy and the checks' own caches (temporary
-//! files, package and build caches, under LocalLow), and nowhere else. Not the person's
-//! repository, not their other files, not their registry settings, not the clipboard. The
-//! command still reads what the person can read and still has the network (a build fetches its
-//! packages), so what the worker is allowed to run stays the allowlist's to say.
+//! a low-integrity, restricted process with its privileges dropped:
 //!
-//! [`prepare`] labels a scratch copy once; [`spawn`] starts a command in it the same way on every
-//! call, with the environment [`environment`] gives (caches moved to LocalLow); [`Sandboxed`] is
-//! the running command: its output pipes, its exit, and its job (the command and everything it
-//! started), terminated when it runs too long or the worker stops.
+//! - It writes only where things are labelled low, which Nook makes the scratch copy and the
+//!   checks' own caches (temporary files, package and build caches, under LocalLow). Not the
+//!   person's repository, their other files, their registry settings or the clipboard.
+//! - It reads only what every account on the computer may read (Windows, Program Files, most
+//!   other drives) and what Nook grants the checks' own SID: the scratch copy, the caches, and
+//!   the toolchains on its PATH that live in the person's profile. Not the rest of the profile,
+//!   where a person's keys, tokens and browser data are, nor their registry settings. Windows
+//!   PowerShell 5.1 cannot start so (PowerShell 7 and .NET can): see [`POWERSHELL_HINT`].
+//! - It inherits only the part of Nook's environment toolchains need ([`INHERITED`]), never a
+//!   token or password set for other programs.
+//! - It still has the network (a build fetches its packages). No setting of the token can take
+//!   it away: Windows opens its sockets to Everyone, and a process that is not Everyone cannot
+//!   even start Python or cargo (tried 2026-09-28, as was the untrusted integrity level). What a
+//!   check could send is what it can read, which is the scratch copy and what every account on
+//!   the computer may read. Taking the network too needs an AppContainer, which cannot run a
+//!   toolchain installed with permissions of its own (Node's installer leaves out the app
+//!   packages) without an administrator granting them.
+//!
+//! [`prepare`] grants and labels a scratch copy once; [`spawn`] starts a command in it the same
+//! way on every call, with the environment [`inherited`] and [`environment`] give (caches moved
+//! to LocalLow); [`Sandboxed`] is the running command: its output pipes, its exit, and its job
+//! (the command and everything it started), terminated when it runs too long or the worker
+//! stops.
 //!
 //! `NOOK_UNSANDBOXED_CHECKS=1` in Nook's own environment runs checks as before, for a toolchain
 //! that cannot work this way; nothing a repository contains can turn the sandbox off.
@@ -20,6 +34,151 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+
+/// What of Nook's environment a check inherits: where Windows and the toolchains are and how
+/// the computer is set up. Anything else (a token, a key, a password a person set for other
+/// programs) stays with Nook.
+pub const INHERITED: &[&str] = &[
+    "PATH",
+    "PATHEXT",
+    "SystemRoot",
+    "windir",
+    "SystemDrive",
+    "ComSpec",
+    "OS",
+    "PROCESSOR_ARCHITECTURE",
+    "PROCESSOR_IDENTIFIER",
+    "PROCESSOR_LEVEL",
+    "PROCESSOR_REVISION",
+    "NUMBER_OF_PROCESSORS",
+    "ProgramFiles",
+    "ProgramFiles(x86)",
+    "ProgramW6432",
+    "CommonProgramFiles",
+    "CommonProgramFiles(x86)",
+    "CommonProgramW6432",
+    "ProgramData",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "DriverData",
+    "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "USERNAME",
+    "USERDOMAIN",
+    "COMPUTERNAME",
+    "LANG",
+    "TZ",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+    "JAVA_HOME",
+    "GOROOT",
+    "DOTNET_ROOT",
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "NODE_PATH",
+    "NVM_HOME",
+    "NVM_SYMLINK",
+    "VCINSTALLDIR",
+    "VSINSTALLDIR",
+    "VCToolsInstallDir",
+    "WindowsSdkDir",
+    "WindowsSDKVersion",
+    "INCLUDE",
+    "LIB",
+    "LIBPATH",
+];
+
+/// What a check that Windows PowerShell 5.1 could not start in is told, after what it printed.
+pub const POWERSHELL_HINT: &str = "Windows PowerShell 5.1 cannot start in the sandbox Nook runs checks in (it needs the person's own registry settings, which checks may not read). PowerShell 7 (pwsh) can. To run checks without the sandbox, start Nook with NOOK_UNSANDBOXED_CHECKS=1.";
+
+/// Whether a check's output is Windows PowerShell 5.1 failing to start in the sandbox.
+pub fn powershell_failed(output: &str) -> bool {
+    output.contains("Invoking managed Windows PowerShell failed")
+}
+
+/// Nook's environment, only the names in [`INHERITED`].
+pub fn inherited() -> BTreeMap<String, String> {
+    std::env::vars()
+        .filter(|(k, _)| INHERITED.iter().any(|n| n.eq_ignore_ascii_case(k)))
+        .collect()
+}
+
+/// Grants the checks the toolchains on `env`'s PATH that live in the person's profile, which
+/// they could not read otherwise ([`toolchain_dirs`]).
+pub fn grant_toolchains(env: &BTreeMap<String, String>) {
+    #[cfg(windows)]
+    {
+        let Some(profile) = std::env::var_os("USERPROFILE").map(PathBuf::from) else {
+            return;
+        };
+        for dir in toolchain_dirs(env, &profile)
+            .into_iter()
+            .filter(|d| d.is_dir())
+        {
+            if let Err(e) = imp::grant(&dir, false) {
+                tracing::warn!("The checks cannot use {}: {e:#}", dir.display());
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = env;
+}
+
+/// The folders in `profile` a check's toolchains need: each folder on `env`'s PATH that is in
+/// it (its parent for a `bin`, `Scripts` or `cmd` folder, as a Python's or a Git's is, unless
+/// that is a dot folder such as `.cargo`, which holds a person's credentials too), and rustup's
+/// toolchains.
+pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<PathBuf> {
+    let get = |k: &str| {
+        env.iter()
+            .find(|(n, _)| n.eq_ignore_ascii_case(k))
+            .map(|(_, v)| v.clone())
+    };
+    let lower = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+    // "c:\users\ann\", so that C:\Users\Anna is not taken for inside it.
+    let home = format!("{}\\", lower(profile).trim_end_matches('\\'));
+    let inside = |p: &Path| {
+        let l = lower(p);
+        l.starts_with(&home) && l.trim_end_matches('\\').len() >= home.len()
+    };
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for dir in std::env::split_paths(&get("PATH").unwrap_or_default()) {
+        if !dir.is_absolute() || !inside(&dir) {
+            continue;
+        }
+        let name = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let target = match dir.parent() {
+            Some(up)
+                if ["bin", "scripts", "cmd"].contains(&name.as_str())
+                    && inside(up)
+                    && !up
+                        .file_name()
+                        .is_some_and(|n| n.to_string_lossy().starts_with('.')) =>
+            {
+                up.to_path_buf()
+            }
+            _ => dir,
+        };
+        dirs.push(target);
+    }
+    let rustup = get("RUSTUP_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| profile.join(".rustup"));
+    if inside(&rustup) {
+        dirs.push(rustup);
+    }
+    dirs.sort();
+    dirs.dedup();
+    dirs
+}
 
 /// Whether checks run sandboxed: always, unless Nook was started with `NOOK_UNSANDBOXED_CHECKS=1`.
 pub fn enabled() -> bool {
@@ -64,6 +223,9 @@ pub fn environment(base: &BTreeMap<String, String>) -> Vec<(String, String)> {
         ("NUGET_PACKAGES", at("nuget")),
         ("DOTNET_CLI_HOME", at("dotnet")),
         ("CARGO_HOME", at("cargo")),
+        // A home of the checks' own: Git and the like look there for the person's settings.
+        ("HOME", at("home")),
+        ("npm_config_userconfig", at("home\\.npmrc")),
     ];
     let set = |k: &str| base.keys().any(|b| b.eq_ignore_ascii_case(k));
     wanted
@@ -86,10 +248,13 @@ pub fn prepare(dir: &Path) -> Result<()> {
     {
         for sub in [
             "tmp", "npm", "yarn", "gradle", "go", "pip", "cache", "nuget", "dotnet", "cargo",
+            "home",
         ] {
             std::fs::create_dir_all(caches().join(sub))?;
         }
+        imp::grant(&caches(), true)?;
         imp::label_low(dir)?;
+        imp::grant(dir, true)?;
     }
     #[cfg(not(windows))]
     let _ = dir;
@@ -111,19 +276,26 @@ mod imp {
     use windows_sys::Win32::Foundation::{
         GetLastError, SetHandleInformation, HANDLE, HANDLE_FLAG_INHERIT, WAIT_OBJECT_0,
     };
+    use windows_sys::Win32::Foundation::{LocalFree, GENERIC_ALL};
     use windows_sys::Win32::Security::Authorization::{
-        TreeSetNamedSecurityInfoW, SE_FILE_OBJECT, TREE_SEC_INFO_SET,
+        ConvertStringSidToSidW, GetNamedSecurityInfoW, SetEntriesInAclW, SetNamedSecurityInfoW,
+        TreeSetNamedSecurityInfoW, EXPLICIT_ACCESS_W, GRANT_ACCESS, NO_MULTIPLE_TRUSTEE,
+        SE_FILE_OBJECT, TREE_SEC_INFO_SET, TRUSTEE_IS_SID, TRUSTEE_IS_UNKNOWN, TRUSTEE_W,
     };
     use windows_sys::Win32::Security::{
-        AddMandatoryAce, CreateRestrictedToken, CreateWellKnownSid, GetLengthSid, InitializeAcl,
-        SetTokenInformation, TokenIntegrityLevel, WinLowLabelSid, ACL, ACL_REVISION,
-        CONTAINER_INHERIT_ACE, DISABLE_MAX_PRIVILEGE, LABEL_SECURITY_INFORMATION,
-        OBJECT_INHERIT_ACE, SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE, SID_AND_ATTRIBUTES,
-        TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL,
-        TOKEN_QUERY,
+        AclSizeInformation, AddMandatoryAce, CreateRestrictedToken, CreateWellKnownSid, EqualSid,
+        GetAce, GetAclInformation, GetLengthSid, GetTokenInformation, InitializeAcl,
+        SetTokenInformation, TokenDefaultDacl, TokenGroups, TokenIntegrityLevel, TokenUser,
+        WinLowLabelSid, ACCESS_ALLOWED_ACE, ACE_HEADER, ACL, ACL_REVISION, ACL_SIZE_INFORMATION,
+        CONTAINER_INHERIT_ACE, DACL_SECURITY_INFORMATION, DISABLE_MAX_PRIVILEGE,
+        LABEL_SECURITY_INFORMATION, OBJECT_INHERIT_ACE, SECURITY_ATTRIBUTES, SECURITY_MAX_SID_SIZE,
+        SID_AND_ATTRIBUTES, SUB_CONTAINERS_AND_OBJECTS_INHERIT, TOKEN_ADJUST_DEFAULT,
+        TOKEN_ASSIGN_PRIMARY, TOKEN_DEFAULT_DACL, TOKEN_DUPLICATE, TOKEN_GROUPS,
+        TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TOKEN_USER,
     };
     use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, FILE_GENERIC_READ, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        CreateFileW, FILE_ALL_ACCESS, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, OPEN_EXISTING,
     };
     use windows_sys::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectBasicUIRestrictions,
@@ -144,7 +316,63 @@ mod imp {
 
     // winnt.h's, which windows-sys keeps in a module of its own.
     const SE_GROUP_INTEGRITY: u32 = 0x20;
+    const SE_GROUP_LOGON_ID: u32 = 0xC000_0000;
     const SYSTEM_MANDATORY_LABEL_NO_WRITE_UP: u32 = 0x1;
+    const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+
+    /// Nook's own SID for its checks, made up: an account in a domain that does not exist (its
+    /// numbers from the capability SID Windows derives from "nookChecks"; a capability SID
+    /// itself cannot restrict a token). No account or program carries it but a check's token,
+    /// so what Nook grants it is granted to the checks alone.
+    pub(crate) const CHECKS_SID: &str = "S-1-5-21-2534765756-3568468254-3032394455-1660974106";
+    const USERS_SID: &str = "S-1-5-32-545";
+    const AUTHENTICATED_USERS_SID: &str = "S-1-5-11";
+    const EVERYONE_SID: &str = "S-1-1-0";
+    const SYSTEM_SID: &str = "S-1-5-18";
+
+    /// A SID read from its string form, freed when dropped.
+    struct Sid(*mut c_void);
+
+    impl Sid {
+        fn parse(s: &str) -> Result<Sid> {
+            let w = wide(OsStr::new(s));
+            let mut sid: *mut c_void = std::ptr::null_mut();
+            // SAFETY: a NUL-terminated string in; Windows allocates the SID, freed on drop.
+            if unsafe { ConvertStringSidToSidW(w.as_ptr(), &mut sid) } == 0 {
+                return Err(last_error("Could not read a SID"));
+            }
+            Ok(Sid(sid))
+        }
+    }
+
+    impl Drop for Sid {
+        fn drop(&mut self) {
+            // SAFETY: allocated by ConvertStringSidToSidW.
+            unsafe { LocalFree(self.0) };
+        }
+    }
+
+    /// One of a token's facts (TokenUser, TokenGroups), in a buffer aligned for what it holds.
+    fn token_info(token: HANDLE, class: i32) -> Result<Vec<u64>> {
+        let mut size = 0u32;
+        // SAFETY: the first call only says how much room the answer takes.
+        unsafe { GetTokenInformation(token, class, std::ptr::null_mut(), 0, &mut size) };
+        let mut buf = vec![0u64; (size as usize).div_ceil(8).max(1)];
+        // SAFETY: the buffer holds `size` bytes.
+        if unsafe {
+            GetTokenInformation(
+                token,
+                class,
+                buf.as_mut_ptr() as *mut c_void,
+                size,
+                &mut size,
+            )
+        } == 0
+        {
+            return Err(last_error("Could not read Nook's own token"));
+        }
+        Ok(buf)
+    }
 
     fn wide(s: &OsStr) -> Vec<u16> {
         s.encode_wide().chain(std::iter::once(0)).collect()
@@ -239,8 +467,121 @@ mod imp {
         Ok(())
     }
 
-    /// A token like Nook's own with every privilege but one dropped and a low integrity level.
-    fn low_token() -> Result<OwnedHandle> {
+    /// Grants [`CHECKS_SID`] `dir` and all it holds (and all made in it later): everything with
+    /// `write`, else reading and running. Nothing is done when it has that already.
+    pub(super) fn grant(dir: &Path, write: bool) -> Result<()> {
+        let checks = Sid::parse(CHECKS_SID)?;
+        let path = wide(dir.as_os_str());
+        let wanted = if write {
+            FILE_ALL_ACCESS
+        } else {
+            FILE_GENERIC_READ | FILE_GENERIC_EXECUTE
+        };
+        let mut dacl: *mut ACL = std::ptr::null_mut();
+        let mut sd: *mut c_void = std::ptr::null_mut();
+        // SAFETY: plain Win32 calls; what Windows allocates is freed below.
+        unsafe {
+            let err = GetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut dacl,
+                std::ptr::null_mut(),
+                &mut sd,
+            );
+            if err != 0 {
+                bail!(
+                    "Could not read who may use {}: {}",
+                    dir.display(),
+                    std::io::Error::from_raw_os_error(err as i32)
+                );
+            }
+            let has = !dacl.is_null() && {
+                let mut info: ACL_SIZE_INFORMATION = std::mem::zeroed();
+                GetAclInformation(
+                    dacl,
+                    &mut info as *mut _ as *mut c_void,
+                    std::mem::size_of::<ACL_SIZE_INFORMATION>() as u32,
+                    AclSizeInformation,
+                );
+                (0..info.AceCount).any(|i| {
+                    let mut ace: *mut c_void = std::ptr::null_mut();
+                    if GetAce(dacl, i, &mut ace) == 0 {
+                        return false;
+                    }
+                    let header = &*(ace as *const ACE_HEADER);
+                    if header.AceType != ACCESS_ALLOWED_ACE_TYPE
+                        || header.AceFlags as u32 & (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)
+                            != OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE
+                    {
+                        return false;
+                    }
+                    let allowed = &*(ace as *const ACCESS_ALLOWED_ACE);
+                    allowed.Mask & wanted == wanted
+                        && EqualSid(&allowed.SidStart as *const u32 as *mut c_void, checks.0) != 0
+                })
+            };
+            if has {
+                LocalFree(sd);
+                return Ok(());
+            }
+            let entry = EXPLICIT_ACCESS_W {
+                grfAccessPermissions: wanted,
+                grfAccessMode: GRANT_ACCESS,
+                grfInheritance: SUB_CONTAINERS_AND_OBJECTS_INHERIT,
+                Trustee: TRUSTEE_W {
+                    pMultipleTrustee: std::ptr::null_mut(),
+                    MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                    TrusteeForm: TRUSTEE_IS_SID,
+                    TrusteeType: TRUSTEE_IS_UNKNOWN,
+                    ptstrName: checks.0 as *mut u16,
+                },
+            };
+            let mut new: *mut ACL = std::ptr::null_mut();
+            let err = SetEntriesInAclW(1, &entry, dacl, &mut new);
+            LocalFree(sd);
+            if err != 0 {
+                bail!(
+                    "Could not grant the checks {}: {}",
+                    dir.display(),
+                    std::io::Error::from_raw_os_error(err as i32)
+                );
+            }
+            // Set on the folder, it reaches what it holds by inheritance.
+            let err = SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                new,
+                std::ptr::null(),
+            );
+            LocalFree(new as *mut c_void);
+            if err != 0 {
+                bail!(
+                    "Could not grant the checks {}: {}",
+                    dir.display(),
+                    std::io::Error::from_raw_os_error(err as i32)
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// A token like Nook's own with every privilege but one dropped, a low integrity level, and
+    /// restricted: Windows grants it only what it grants both the person and one of the
+    /// restricting SIDs, which are Everyone and the computer's users (what every account here may
+    /// read: Windows, Program Files, most other drives), this logon's SID (its own desktop) and
+    /// Nook's [`CHECKS_SID`] (the scratch copy, the caches, toolchains in the profile). Not the
+    /// person's profile, which grants none of them, nor their registry settings: RESTRICTED,
+    /// which those grant, is left out, though Windows PowerShell 5.1 (the .NET Framework) cannot
+    /// start without it; programs keep passwords there that any process of the person's can
+    /// decrypt. What a check makes, its other commands may open: the default DACL grants the
+    /// SIDs.
+    fn check_token() -> Result<OwnedHandle> {
         let mut own: HANDLE = std::ptr::null_mut();
         // SAFETY: plain Win32 calls; every handle opened here is owned by an OwnedHandle.
         unsafe {
@@ -253,6 +594,31 @@ mod imp {
                 return Err(last_error("Could not read Nook's own token"));
             }
             let own = OwnedHandle::from_raw_handle(own as _);
+            let user_info = token_info(own.as_raw_handle() as HANDLE, TokenUser)?;
+            let user = (*(user_info.as_ptr() as *const TOKEN_USER)).User.Sid;
+            let groups_info = token_info(own.as_raw_handle() as HANDLE, TokenGroups)?;
+            let groups = &*(groups_info.as_ptr() as *const TOKEN_GROUPS);
+            let logon =
+                std::slice::from_raw_parts(groups.Groups.as_ptr(), groups.GroupCount as usize)
+                    .iter()
+                    .find(|g| g.Attributes & SE_GROUP_LOGON_ID == SE_GROUP_LOGON_ID)
+                    .map(|g| g.Sid);
+            let (everyone, users, authenticated, checks, system) = (
+                Sid::parse(EVERYONE_SID)?,
+                Sid::parse(USERS_SID)?,
+                Sid::parse(AUTHENTICATED_USERS_SID)?,
+                Sid::parse(CHECKS_SID)?,
+                Sid::parse(SYSTEM_SID)?,
+            );
+            let mut restricting: Vec<SID_AND_ATTRIBUTES> =
+                [everyone.0, users.0, authenticated.0, checks.0]
+                    .into_iter()
+                    .chain(logon)
+                    .map(|sid| SID_AND_ATTRIBUTES {
+                        Sid: sid,
+                        Attributes: 0,
+                    })
+                    .collect();
             let mut restricted: HANDLE = std::ptr::null_mut();
             if CreateRestrictedToken(
                 own.as_raw_handle() as HANDLE,
@@ -261,14 +627,59 @@ mod imp {
                 std::ptr::null(),
                 0,
                 std::ptr::null(),
-                0,
-                std::ptr::null(),
+                restricting.len() as u32,
+                restricting.as_mut_ptr(),
                 &mut restricted,
             ) == 0
             {
                 return Err(last_error("Could not make a restricted token"));
             }
             let restricted = OwnedHandle::from_raw_handle(restricted as _);
+            // Objects a check makes (a jobserver's semaphore, a pipe) are for its other
+            // processes too, which pass the restricting SIDs' check only through these.
+            let owners: Vec<*mut c_void> = [user, system.0, checks.0]
+                .into_iter()
+                .chain(logon)
+                .collect();
+            let entries: Vec<EXPLICIT_ACCESS_W> = owners
+                .iter()
+                .map(|&sid| EXPLICIT_ACCESS_W {
+                    grfAccessPermissions: GENERIC_ALL,
+                    grfAccessMode: GRANT_ACCESS,
+                    grfInheritance: 0,
+                    Trustee: TRUSTEE_W {
+                        pMultipleTrustee: std::ptr::null_mut(),
+                        MultipleTrusteeOperation: NO_MULTIPLE_TRUSTEE,
+                        TrusteeForm: TRUSTEE_IS_SID,
+                        TrusteeType: TRUSTEE_IS_UNKNOWN,
+                        ptstrName: sid as *mut u16,
+                    },
+                })
+                .collect();
+            let mut dacl: *mut ACL = std::ptr::null_mut();
+            let err = SetEntriesInAclW(
+                entries.len() as u32,
+                entries.as_ptr(),
+                std::ptr::null(),
+                &mut dacl,
+            );
+            if err != 0 {
+                bail!(
+                    "Could not make the checks' default access: {}",
+                    std::io::Error::from_raw_os_error(err as i32)
+                );
+            }
+            let default = TOKEN_DEFAULT_DACL { DefaultDacl: dacl };
+            let set = SetTokenInformation(
+                restricted.as_raw_handle() as HANDLE,
+                TokenDefaultDacl,
+                &default as *const _ as *const c_void,
+                std::mem::size_of::<TOKEN_DEFAULT_DACL>() as u32,
+            );
+            LocalFree(dacl as *mut c_void);
+            if set == 0 {
+                return Err(last_error("Could not set the checks' default access"));
+            }
             let mut sid = low_sid()?;
             let label = TOKEN_MANDATORY_LABEL {
                 Label: SID_AND_ATTRIBUTES {
@@ -508,9 +919,10 @@ mod imp {
         }
     }
 
-    /// Starts `program` with `args` in `cwd` as a low-integrity process with its privileges
-    /// dropped, in a job of its own (no clipboard, no desktop switching, no system settings),
-    /// with `env` as its whole environment. `cwd` must have been [`prepare`](super::prepare)d.
+    /// Starts `program` with `args` in `cwd` as a low-integrity, restricted process with its
+    /// privileges dropped ([`check_token`]), in a job of its own (no clipboard, no desktop
+    /// switching, no system settings), with `env` as its whole environment. `cwd` must have been
+    /// [`prepare`](super::prepare)d.
     pub fn spawn(
         program: &str,
         args: &[String],
@@ -524,7 +936,7 @@ mod imp {
             )
         })?;
         let (application, line) = command_line(&exe, args)?;
-        let token = low_token()?;
+        let token = check_token()?;
         let (out_read, out_write) = pipe()?;
         let (err_read, err_write) = pipe()?;
         let input = null_input()?;
@@ -635,7 +1047,7 @@ mod tests {
     use std::io::Read;
 
     fn run(program: &str, args: &[&str], cwd: &Path) -> (i32, String) {
-        let mut env: BTreeMap<String, String> = std::env::vars().collect();
+        let mut env = inherited();
         env.extend(environment(&env));
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -708,6 +1120,70 @@ mod tests {
         assert_eq!(code, 0, "{out}");
     }
 
+    /// Made up for the test, and in Nook's environment only while it runs.
+    const SECRET: &str = "nook-sandbox-sentinel-7f3a";
+
+    #[test]
+    fn a_check_reads_nothing_private_to_the_person() {
+        // The test's temporary folder is in the person's profile, as their own files are:
+        // private to them, which the scratch copy is not once prepared.
+        let tmp = tempfile::tempdir().unwrap();
+        let scratch = tmp.path().join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+        prepare(&scratch).unwrap();
+        let private = tmp.path().join("private");
+        std::fs::create_dir_all(&private).unwrap();
+        let key = private.join("key.txt");
+        std::fs::write(&key, SECRET).unwrap();
+        assert!(!key.display().to_string().contains(' '));
+
+        let (code, out) = run("cmd", &["/c", &format!("type {}", key.display())], &scratch);
+        assert_ne!(code, 0, "reading a private file must fail: {out}");
+        assert!(!out.contains(SECRET), "{out}");
+        assert!(out.contains("Access is denied"), "{out}");
+        // Nor the listing of the profile's own folder.
+        let profile = std::env::var("USERPROFILE").unwrap();
+        let (code, out) = run("cmd", &["/c", &format!("dir /b {profile}")], &scratch);
+        assert!(code != 0 || out.trim().is_empty(), "{out}");
+        // The scratch copy and Windows are read as ever.
+        std::fs::write(scratch.join("own.txt"), "mine").unwrap();
+        let (code, out) = run("cmd", &["/c", "type own.txt"], &scratch);
+        assert_eq!((code, out.trim()), (0, "mine"));
+        let (code, out) = run("cmd", &["/c", r"type %SystemRoot%\win.ini"], &scratch);
+        assert_eq!(code, 0, "{out}");
+        // The same file reads fine outside the sandbox: the refusal is the sandbox's.
+        assert_eq!(std::fs::read_to_string(&key).unwrap(), SECRET);
+        // Nor the person's registry settings, which grant every process of theirs but these.
+        let (code, out) = run(
+            "reg",
+            &["query", r"HKCU\Control Panel\Desktop", "/v", "WallPaper"],
+            &scratch,
+        );
+        assert_ne!(code, 0, "{out}");
+        assert!(out.contains("Access is denied"), "{out}");
+    }
+
+    #[test]
+    fn a_check_does_not_inherit_what_nook_was_given_for_other_programs() {
+        // SAFETY: the name is this test's own; no other test reads it.
+        unsafe { std::env::set_var("NOOK_SANDBOX_TEST_TOKEN", SECRET) };
+        let tmp = tempfile::tempdir().unwrap();
+        prepare(tmp.path()).unwrap();
+        let (code, out) = run(
+            "cmd",
+            &["/c", "echo [%NOOK_SANDBOX_TEST_TOKEN%] [%SystemRoot%]"],
+            tmp.path(),
+        );
+        unsafe { std::env::remove_var("NOOK_SANDBOX_TEST_TOKEN") };
+        assert_eq!(code, 0, "{out}");
+        assert!(!out.contains(SECRET), "{out}");
+        assert!(out.contains("[%NOOK_SANDBOX_TEST_TOKEN%]"), "{out}");
+        assert!(
+            !out.contains("[%SystemRoot%]"),
+            "what toolchains need is there: {out}"
+        );
+    }
+
     /// The toolchains a worker's checks use, sandboxed as a check runs them, in a project of
     /// their own: a Rust crate with no dependencies, an npm test script, a Python script. The
     /// person's own CARGO_HOME is left out, as it is on a computer that never set one.
@@ -736,11 +1212,9 @@ mod tests {
         std::fs::write(p.join("check.py"), "open('py-ran.txt', 'w').write('ok')\n").unwrap();
         prepare(&p).unwrap();
 
-        let mut env: BTreeMap<String, String> = std::env::vars().collect();
-        env.retain(|k, _| {
-            !k.eq_ignore_ascii_case("CARGO_HOME") && !k.eq_ignore_ascii_case("CARGO_TARGET_DIR")
-        });
+        let mut env = inherited();
         env.extend(environment(&env));
+        grant_toolchains(&env);
         let rt = tokio::runtime::Runtime::new().unwrap();
         let go = |program: &str, args: &[&str]| {
             let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
@@ -771,6 +1245,35 @@ mod tests {
         println!("python: exit {code}\n{out}");
         assert_eq!(code, 0);
         assert!(p.join("py-ran.txt").is_file());
+    }
+
+    #[test]
+    fn the_toolchains_granted_are_those_in_the_profile_and_no_more() {
+        let path = [
+            r"C:\Windows\System32",
+            r"C:\Users\Ann\AppData\Local\Programs\Python\Python311\Scripts\",
+            r"C:\Users\Ann\AppData\Local\Programs\Python\Python311\",
+            r"C:\Users\Ann\.cargo\bin",
+            r"C:\Users\Ann\AppData\Local\Programs\Git\cmd",
+            r"C:\Users\Anna\bin",
+            r"C:\Users\Ann\bin",
+            r"C:\Program Files\nodejs",
+        ]
+        .join(";");
+        let env: BTreeMap<String, String> = [("Path".to_string(), path)].into();
+        let dirs = toolchain_dirs(&env, Path::new(r"C:\Users\Ann"));
+        let dirs: Vec<String> = dirs.iter().map(|d| d.display().to_string()).collect();
+        assert_eq!(
+            dirs,
+            [
+                r"C:\Users\Ann\.cargo\bin",
+                r"C:\Users\Ann\.rustup",
+                r"C:\Users\Ann\AppData\Local\Programs\Git",
+                // Once, though PATH has it with and without the last backslash.
+                r"C:\Users\Ann\AppData\Local\Programs\Python\Python311",
+                r"C:\Users\Ann\bin",
+            ]
+        );
     }
 
     #[test]

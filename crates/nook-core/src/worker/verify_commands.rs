@@ -290,10 +290,16 @@ impl VerifyCommands {
 static PREPARED: Lazy<Mutex<std::collections::HashSet<std::path::PathBuf>>> =
     Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
 
-/// Runs a command as a sandboxed check ([`super::sandbox`]): a low-integrity process in a job of
-/// its own, writing only inside `cwd` and the checks' caches. The same results as an ordinary
-/// run: the exit code and the tail of what it printed, a time limit, the job stopped when the
-/// worker is.
+/// The PATHs whose toolchains were granted to the checks in this run of Nook.
+#[cfg(windows)]
+static GRANTED: Lazy<Mutex<std::collections::HashSet<String>>> =
+    Lazy::new(|| Mutex::new(std::collections::HashSet::new()));
+
+/// Runs a command as a sandboxed check ([`super::sandbox`]): a low-integrity, restricted process
+/// in a job of its own, writing only inside `cwd` and the checks' caches, reading nothing private
+/// to the person, with none of Nook's environment but what toolchains need. The same results as
+/// an ordinary run: the exit code and the tail of what it printed, a time limit, the job stopped
+/// when the worker is.
 #[cfg(windows)]
 async fn run_sandboxed(
     parts: &[String],
@@ -312,9 +318,9 @@ async fn run_sandboxed(
             .map_err(|e| anyhow!("{e}"))??;
         PREPARED.lock().insert(dir);
     }
-    // Nook's environment with the command's own on top (names without regard to case, as
-    // Windows has them), then the sandbox's temporary and cache folders.
-    let mut all: BTreeMap<String, String> = std::env::vars().collect();
+    // What of Nook's environment toolchains need, the command's own on top (names without
+    // regard to case, as Windows has them), then the sandbox's temporary and cache folders.
+    let mut all: BTreeMap<String, String> = sandbox::inherited();
     let set = |all: &mut BTreeMap<String, String>, k: &str, v: &str| {
         all.retain(|name, _| !name.eq_ignore_ascii_case(k));
         all.insert(k.to_string(), v.to_string());
@@ -324,6 +330,18 @@ async fn run_sandboxed(
     }
     for (k, v) in sandbox::environment(&all) {
         set(&mut all, &k, &v);
+    }
+    let path = all
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("PATH"))
+        .map(|(_, v)| v.clone())
+        .unwrap_or_default();
+    if !GRANTED.lock().contains(&path) {
+        let e = all.clone();
+        tokio::task::spawn_blocking(move || sandbox::grant_toolchains(&e))
+            .await
+            .map_err(|e| anyhow!("{e}"))?;
+        GRANTED.lock().insert(path);
     }
     let started = Instant::now();
     let mut child = sandbox::spawn(&parts[0], &parts[1..], cwd, &all)?;
@@ -365,7 +383,11 @@ async fn run_sandboxed(
     })
     .await;
     readers.iter().for_each(|r| r.abort());
-    let text = output.lock().text();
+    let mut text = output.lock().text();
+    if sandbox::powershell_failed(&text) {
+        text.push_str("\n\n");
+        text.push_str(sandbox::POWERSHELL_HINT);
+    }
     Ok(VerifyResult {
         exit_code: code,
         output: text,
@@ -786,6 +808,14 @@ mod tests {
     mod windows {
         use super::*;
 
+        /// What these tests give their commands: Windows' own folders as the PATH, so the
+        /// sandbox has no toolchains in the profile to grant (and changes nothing on the
+        /// computer that runs them).
+        fn windows_only() -> HashMap<String, String> {
+            let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into());
+            HashMap::from([("PATH".to_string(), format!(r"{root}\System32;{root}"))])
+        }
+
         fn cmd_repo(files: &[(&str, &str)]) -> (tempfile::TempDir, VerifyCommands) {
             let mut all = vec![("nook.json", r#"{"verify": ["cmd /c"]}"#)];
             all.extend_from_slice(files);
@@ -801,7 +831,7 @@ mod tests {
             // .\ because this machine's cmd may not look in the current folder
             // (NoDefaultCurrentDirectoryInExePath)
             let r = v
-                .run("cmd /c .\\both.cmd", dir.path(), &HashMap::new())
+                .run("cmd /c .\\both.cmd", dir.path(), &windows_only())
                 .await
                 .unwrap();
             assert_eq!(3, r.exit_code, "{}", r.output);
@@ -813,7 +843,8 @@ mod tests {
             );
             assert!(r.summary().starts_with("exit 3 in "), "{}", r.summary());
 
-            let env = HashMap::from([("JAVA_HOME".to_string(), "C:\\jdk-for-test".to_string())]);
+            let mut env = windows_only();
+            env.insert("JAVA_HOME".to_string(), "C:\\jdk-for-test".to_string());
             let r = v
                 .run("cmd /c echo %JAVA_HOME%", dir.path(), &env)
                 .await
@@ -832,7 +863,7 @@ mod tests {
                 "@for /l %%i in (1,1,3000) do @echo line %%i\r\n",
             )]);
             let r = v
-                .run("cmd /c .\\many.cmd", dir.path(), &HashMap::new())
+                .run("cmd /c .\\many.cmd", dir.path(), &windows_only())
                 .await
                 .unwrap();
             assert!(r.passed(), "{}", r.output);
@@ -853,7 +884,7 @@ mod tests {
                 .run(
                     "gradlew :agent:test --tests FooTest",
                     dir.path(),
-                    &HashMap::new(),
+                    &windows_only(),
                 )
                 .await
                 .unwrap();
@@ -878,7 +909,7 @@ mod tests {
             let dir = repo(&[("nook.json", r#"{"verify": ["no-such-program-for-nook"]}"#)]);
             let v = VerifyCommands::for_repository(dir.path());
             let e = v
-                .run("no-such-program-for-nook", dir.path(), &HashMap::new())
+                .run("no-such-program-for-nook", dir.path(), &windows_only())
                 .await
                 .unwrap_err();
             assert!(
@@ -888,14 +919,22 @@ mod tests {
             );
         }
 
-        /// The pid a script's PowerShell grandchild wrote, once it has.
-        async fn grandchild(pid_file: &Path) -> u32 {
-            for _ in 0..200 {
-                if let Some(pid) = std::fs::read_to_string(pid_file)
-                    .ok()
-                    .and_then(|s| s.trim().parse().ok())
-                {
-                    return pid;
+        /// The pid of a script's grandchild, a ping of `address` (a loopback address of each
+        /// test's own), once it runs. A minute: the first check on a computer grants the
+        /// toolchains in the profile before it starts, which takes a while for a large one.
+        async fn grandchild(address: &str) -> u32 {
+            for _ in 0..1200 {
+                let mut sys = sysinfo::System::new();
+                sys.refresh_processes_specifics(
+                    sysinfo::ProcessesToUpdate::All,
+                    true,
+                    sysinfo::ProcessRefreshKind::nothing().with_cmd(sysinfo::UpdateKind::Always),
+                );
+                if let Some(p) = sys.processes().values().find(|p| {
+                    p.name().eq_ignore_ascii_case("PING.EXE")
+                        && p.cmd().iter().any(|a| a.to_string_lossy() == address)
+                }) {
+                    return p.pid().as_u32();
                 }
                 tokio::time::sleep(Duration::from_millis(50)).await;
             }
@@ -915,23 +954,24 @@ mod tests {
             false
         }
 
-        const SLEEPER: &str =
-            "Set-Content -Path pid.txt -Value $PID\r\nStart-Sleep -Seconds 120\r\n";
-        const TREE: &str =
-            "@powershell -NoProfile -NonInteractive -ExecutionPolicy Bypass -File sleep.ps1\r\n";
+        /// A script whose child pings `address` for two minutes.
+        fn tree(address: &str) -> String {
+            format!("@ping -n 120 {address} >nul\r\n")
+        }
 
         #[tokio::test]
         async fn a_command_past_its_time_is_stopped_with_its_whole_tree() {
-            let (dir, v) = cmd_repo(&[("tree.cmd", TREE), ("sleep.ps1", SLEEPER)]);
-            let pid_file = dir.path().join("pid.txt");
-            let env = HashMap::new();
+            let address = "127.31.41.59";
+            let script = tree(address);
+            let (dir, v) = cmd_repo(&[("tree.cmd", script.as_str())]);
+            let env = windows_only();
             let run = v.run_within(
                 "cmd /c .\\tree.cmd",
                 dir.path(),
                 &env,
                 Duration::from_secs(8),
             );
-            let (r, pid) = tokio::join!(run, grandchild(&pid_file));
+            let (r, pid) = tokio::join!(run, grandchild(address));
             let r = r.unwrap();
             assert_eq!(-1, r.exit_code);
             assert_eq!(
@@ -946,13 +986,14 @@ mod tests {
 
         #[tokio::test]
         async fn stopping_the_worker_stops_the_tree() {
-            let (dir, v) = cmd_repo(&[("tree.cmd", TREE), ("sleep.ps1", SLEEPER)]);
-            let pid_file = dir.path().join("pid.txt");
-            let env = HashMap::new();
+            let address = "127.31.41.60";
+            let script = tree(address);
+            let (dir, v) = cmd_repo(&[("tree.cmd", script.as_str())]);
+            let env = windows_only();
             let mut run = Box::pin(v.run("cmd /c .\\tree.cmd", dir.path(), &env));
             let pid = tokio::select! {
                 _ = &mut run => panic!("the command ended by itself"),
-                pid = grandchild(&pid_file) => pid,
+                pid = grandchild(address) => pid,
             };
             drop(run);
             assert!(

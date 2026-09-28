@@ -81,7 +81,7 @@ and there is no JVM.
   OpenDocument slides, and PNG, JPEG, WebP, BMP, TIFF, GIF and icon pictures. Office files go
   through an office suite so they keep their layout: Word, Excel and PowerPoint when they are on
   the computer (driven through their own automation, hidden), else LibreOffice (373 MB, downloaded
-  when first needed). Text formats go through Pandoc (42 MB), web pages and text to PDF through
+  when first needed), with a document's macros turned off in either. Text formats go through Pandoc (42 MB), web pages and text to PDF through
   Edge's printing, PDFs to text and documents through PDFium's reading of each line (headings by
   size, lists, bold, hyphens joined, page numbers dropped) and to pictures page by page, pictures
   and tables through Nook itself (a workbook's sheets become one file each, several pictures one
@@ -121,9 +121,13 @@ and there is no JVM.
   Windows lets it write only inside the scratch copy and the checks' own caches
   (`%USERPROFILE%\AppData\LocalLow\Nook\checks`: temporary files, npm, Gradle, Go, pip and Cargo
   caches), never to your repository, your other files or your registry settings, and keeps it
-  off the clipboard. It still reads what you can and still has the network (a build fetches its
-  packages). A program is found on PATH, never in the scratch copy. For a toolchain that cannot
-  work this way, starting Nook with `NOOK_UNSANDBOXED_CHECKS=1` runs checks as before.
+  off the clipboard. It reads only what every account on the computer may read, the scratch
+  copy and the toolchains on your PATH (Nook grants those in your profile to the checks alone):
+  not the rest of your profile, where your keys, tokens and browser data are, nor your registry
+  settings. It gets only the part of Nook's environment toolchains need. It still has the
+  network (a build fetches its packages). A program is found on PATH, never in the scratch copy.
+  Windows PowerShell 5.1 cannot start in the sandbox (PowerShell 7 can). For a toolchain that
+  cannot work this way, starting Nook with `NOOK_UNSANDBOXED_CHECKS=1` runs checks as before.
 - With web access on, the worker can search DuckDuckGo and read public pages it was shown, spaced
   out and capped at eight searches a request.
 - Engines come from the pinned llama.cpp, whisper.cpp and stable-diffusion.cpp releases in

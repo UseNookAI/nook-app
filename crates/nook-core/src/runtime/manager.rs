@@ -449,16 +449,24 @@ pub struct Lease {
     gate: Option<Arc<EngineGate>>,
     priority: Priority,
     closed: AtomicBool,
+    /// Its share of the graphics card, for an engine on it (see `RuntimeManager::gpu`).
+    card: Mutex<Option<tokio::sync::OwnedRwLockReadGuard<()>>>,
 }
 
 impl Lease {
-    fn new(engine: Arc<EngineProcess>, gate: Option<Arc<EngineGate>>, priority: Priority) -> Lease {
+    fn new(
+        engine: Arc<EngineProcess>,
+        gate: Option<Arc<EngineGate>>,
+        priority: Priority,
+        card: Option<tokio::sync::OwnedRwLockReadGuard<()>>,
+    ) -> Lease {
         engine.begin_request();
         Lease {
             engine,
             gate,
             priority,
             closed: AtomicBool::new(false),
+            card: Mutex::new(card),
         }
     }
 
@@ -479,8 +487,39 @@ impl Lease {
             if let Some(gate) = &self.gate {
                 gate.release(self.priority);
             }
+            self.card.lock().take();
         }
     }
+}
+
+/// An engine's slot taken for a request, given back if the request ends before it has its lease.
+struct Slot {
+    gate: Option<Arc<EngineGate>>,
+    priority: Priority,
+}
+
+impl Slot {
+    /// Hands the slot to a lease, which gives it back.
+    fn keep(mut self) -> Arc<EngineGate> {
+        self.gate.take().expect("a slot is kept once")
+    }
+}
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        if let Some(gate) = self.gate.take() {
+            gate.release(self.priority);
+        }
+    }
+}
+
+/// A turn with the graphics card to itself ([`RuntimeManager::gpu_turn`]), for as long as it
+/// lives.
+pub struct GpuTurn<'a> {
+    _card: tokio::sync::RwLockWriteGuard<'a, ()>,
+    /// Why the card has less free than the turn asked for, when it has, for the person: the
+    /// pinned models that stay on it.
+    pub short: Option<String>,
 }
 
 impl Drop for Lease {
@@ -520,6 +559,26 @@ impl Drop for BusyFlag<'_> {
     }
 }
 
+/// What the person reads when the card had less free for `for_what` than it wants: `kept`, the
+/// pinned models that stayed on it.
+fn short_note(free: u64, need: u64, for_what: &str, kept: &[String]) -> String {
+    let gb = |b: u64| format!("{:.1} GB", b as f64 / (1u64 << 30) as f64);
+    let why = match kept {
+        [] => String::new(),
+        [one] => format!(", with {one} pinned in Settings > Runtime"),
+        many => format!(
+            ", with {} and {} pinned in Settings > Runtime",
+            many[..many.len() - 1].join(", "),
+            many[many.len() - 1]
+        ),
+    };
+    format!(
+        "The graphics card had {} free of the {} {for_what} wants{why}, so it may have run slowly.",
+        gb(free),
+        gb(need)
+    )
+}
+
 // ------------------------------------------------------------------ the manager
 
 /// The runtime manager. Create it with [`RuntimeManager::new`] and share the `Arc`.
@@ -538,11 +597,13 @@ pub struct RuntimeManager {
     placement: tokio::sync::Mutex<()>,
     /// The card's arbiter. What takes the card whole (an image, a clip, the flows' voice engine)
     /// holds it exclusively for as long as it works; loading a text or speech engine shares it,
-    /// so nothing new lands on the card while one of those runs, and one of those waits for the
-    /// loads under way. Engines already resident keep answering. Always taken before
-    /// `placement`, never after, so the two cannot wait on each other. Fair: a turn waiting to
-    /// start is not overtaken by loads that come after it.
-    gpu: tokio::sync::RwLock<()>,
+    /// and so does every request to an engine on the card, for as long as it runs (a lease
+    /// holds its share). So nothing loads or answers on the card while one of those runs, and
+    /// one of those waits for the loads and requests under way. Engines on the processor need
+    /// no share. Always taken before `placement`, never after, so the two cannot wait on each
+    /// other, and never twice in one task. Fair: a turn waiting to start is not overtaken by
+    /// loads and requests that come after it.
+    gpu: Arc<tokio::sync::RwLock<()>>,
     downloads: Mutex<BTreeMap<String, f64>>,
     download_workers: Arc<Semaphore>,
     hub_cancels: Mutex<HashMap<String, CancellationToken>>,
@@ -587,7 +648,7 @@ impl RuntimeManager {
             refused: Mutex::new(HashMap::new()),
             recent_events: Mutex::new(VecDeque::new()),
             placement: tokio::sync::Mutex::new(()),
-            gpu: tokio::sync::RwLock::new(()),
+            gpu: Arc::new(tokio::sync::RwLock::new(())),
             downloads: Mutex::new(BTreeMap::new()),
             download_workers: Arc::new(Semaphore::new(DOWNLOAD_WORKERS)),
             hub_cancels: Mutex::new(HashMap::new()),
@@ -1174,30 +1235,43 @@ impl RuntimeManager {
     /// Returns a lease on a loaded engine for the model, loading it first if needed; waits while
     /// the model loads. Interactive requests skip ahead of queued background requests and may
     /// use every slot; background requests leave one slot free when the engine has more than one.
-    /// Fails with a user-readable message when the model cannot be placed.
+    /// An engine on the card also waits while something has the card to itself, and the lease
+    /// holds a share of it (see `gpu`). Fails with a user-readable message when the model cannot
+    /// be placed.
     pub async fn acquire(&self, model_id: &str, priority: Priority) -> Result<Lease> {
-        let current = self.engine(model_id);
-        let e = match current {
-            Some(e) if e.state() == State::Ready && e.is_alive() => e,
-            _ => self.load(model_id).await?,
-        };
-        let gate = self
-            .gates
-            .write()
-            .entry(model_id.to_string())
-            .or_insert_with(|| Arc::new(EngineGate::new(1)))
-            .clone();
-        gate.acquire(priority).await?;
-        let now = self.engine(model_id);
-        let same = now.as_ref().is_some_and(|c| Arc::ptr_eq(c, &e));
-        if !same || !e.is_alive() {
-            gate.release(priority);
-            return Err(AdmissionError(
-                "The model was reloaded while the request was waiting; please retry.".into(),
-            )
-            .into());
+        // A turn on the card that starts while this waits unloads the engine, if idle; it is
+        // loaded again after.
+        for _ in 0..3 {
+            let current = self.engine(model_id);
+            let e = match current {
+                Some(e) if e.state() == State::Ready && e.is_alive() => e,
+                _ => self.load(model_id).await?,
+            };
+            let gate = self
+                .gates
+                .write()
+                .entry(model_id.to_string())
+                .or_insert_with(|| Arc::new(EngineGate::new(1)))
+                .clone();
+            gate.acquire(priority).await?;
+            let slot = Slot {
+                gate: Some(gate),
+                priority,
+            };
+            let card = if e.plan().gpu_layers > 0 {
+                Some(self.gpu.clone().read_owned().await)
+            } else {
+                None
+            };
+            let now = self.engine(model_id);
+            if now.is_some_and(|c| Arc::ptr_eq(&c, &e)) && e.is_alive() {
+                return Ok(Lease::new(e, Some(slot.keep()), priority, card));
+            }
         }
-        Ok(Lease::new(e, Some(gate), priority))
+        Err(AdmissionError(
+            "The model was reloaded while the request was waiting; please retry.".into(),
+        )
+        .into())
     }
 
     /// Loads the model (nothing to do when already resident) and returns its engine. A load
@@ -1892,7 +1966,7 @@ impl RuntimeManager {
             bail!(problem);
         }
         let model = self.speech_model(model_id)?;
-        let w = self.speech_engine(&model).await?;
+        let (w, _card) = self.speech_turn(&model).await?;
         w.transcribe(wav, None).await
     }
 
@@ -1910,8 +1984,33 @@ impl RuntimeManager {
             bail!(problem);
         }
         let model = self.speech_model(model_id)?;
-        let w = self.speech_engine(&model).await?;
+        let (w, _card) = self.speech_turn(&model).await?;
         w.inference(wav, language, "verbose_json").await
+    }
+
+    /// The speech engine for `model`, loaded when needed, with its share of the card for one
+    /// request when it runs on it (see `gpu`).
+    async fn speech_turn(
+        &self,
+        model: &LocalModel,
+    ) -> Result<(
+        Arc<WhisperProcess>,
+        Option<tokio::sync::RwLockReadGuard<'_, ()>>,
+    )> {
+        // Unloaded by a turn on the card that started while this waited: loaded again.
+        for _ in 0..3 {
+            let w = self.speech_engine(model).await?;
+            let card = if w.on_gpu() {
+                Some(self.gpu.read().await)
+            } else {
+                None
+            };
+            let now = self.speech_engines.read().get(&model.id).cloned();
+            if now.is_some_and(|c| Arc::ptr_eq(&c, &w)) && w.is_alive() {
+                return Ok((w, card));
+            }
+        }
+        bail!("The speech model was unloaded while it waited; please try again.")
     }
 
     async fn speech_engine(&self, model: &LocalModel) -> Result<Arc<WhisperProcess>> {
@@ -2179,19 +2278,22 @@ impl RuntimeManager {
     /// memory does not fail but pages through system memory and crawls (Vulkan always, CUDA
     /// under the NVIDIA driver's default sysmem fallback; a one-line clone took minutes beside a
     /// resident Whisper on an 8 GB card, 2026-09-26). The engines load again
-    /// when the next run asks for them. The turn lasts as long as the guard; None when `cancel`
-    /// fired while waiting.
+    /// when the next run asks for them. It waits for the requests under way on the card, and
+    /// requests wait for it. Pinned models stay: when the card is still short of `need_bytes`,
+    /// the turn says so ([`GpuTurn::short`]). The turn lasts as long as it lives; None when
+    /// `cancel` fired while waiting.
     pub async fn gpu_turn(
         &self,
         need_bytes: u64,
         for_what: &str,
         cancel: &CancellationToken,
-    ) -> Option<tokio::sync::RwLockWriteGuard<'_, ()>> {
+    ) -> Option<GpuTurn<'_>> {
         let b = self.backend().await;
-        let turn = tokio::select! {
+        let card = tokio::select! {
             guard = self.gpu.write() => guard,
             _ = cancel.cancelled() => return None,
         };
+        let mut short = None;
         if b != Backend::Cpu {
             let _placement = self.placement.lock().await;
             let after = self.evict_all_idle(for_what).await;
@@ -2201,13 +2303,28 @@ impl RuntimeManager {
                     after >> 20,
                     need_bytes >> 20
                 );
+                let pinned = self.pinned.read().clone();
+                let kept: Vec<String> = self
+                    .engines
+                    .read()
+                    .values()
+                    .filter(|e| pinned.contains(e.model_id()) && e.plan().gpu_layers > 0)
+                    .map(|e| {
+                        self.config
+                            .registry
+                            .find(e.model_id())
+                            .map_or_else(|| e.model_id().to_string(), |m| m.display_name)
+                    })
+                    .collect();
+                short = Some(short_note(after, need_bytes, for_what, &kept));
             }
         }
-        Some(turn)
+        Some(GpuTurn { _card: card, short })
     }
 
     /// Unloads every idle engine that is not pinned, text and speech alike, and returns what
-    /// the card has free afterwards.
+    /// the card has free afterwards. Called with the card to itself, so every engine is idle but
+    /// for a request that runs on the processor.
     async fn evict_all_idle(&self, for_what: &str) -> u64 {
         let reason = format!("evicted for {for_what}");
         let pinned = self.pinned.read().clone();
@@ -3614,26 +3731,81 @@ mod tests {
         );
         assert!(m.engine(&kept).is_some(), "a pinned model stays");
 
-        // While the voice has the card, the resident model still answers, but a model that is
-        // not in waits to load until the turn is over.
-        drop(m.acquire(&kept, Priority::Interactive).await.unwrap());
+        assert_eq!(turn.short, None, "room enough");
+
+        // While the voice has the card, nothing answers on it, the resident model included, and a
+        // model that is not in waits to load until the turn is over.
+        let asking = {
+            let m = m.clone();
+            let kept = kept.clone();
+            tokio::spawn(async move { m.acquire(&kept, Priority::Interactive).await.map(drop) })
+        };
         let loading = {
             let m = m.clone();
             let idle = idle.clone();
             tokio::spawn(async move { m.acquire(&idle, Priority::Interactive).await.map(drop) })
         };
         tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !asking.is_finished(),
+            "no request on the card while the voice speaks"
+        );
         assert!(!loading.is_finished(), "no load while the voice speaks");
         assert!(m.engine(&idle).is_none());
         drop(turn);
-        tokio::time::timeout(Duration::from_secs(20), loading)
-            .await
-            .expect("the load goes on once the turn is over")
-            .unwrap()
-            .unwrap();
+        for waiting in [asking, loading] {
+            tokio::time::timeout(Duration::from_secs(20), waiting)
+                .await
+                .expect("they go on once the turn is over")
+                .unwrap()
+                .unwrap();
+        }
         assert!(m.engine(&idle).is_some());
+
+        // A request under way keeps the next turn waiting until it is done.
+        let lease = m.acquire(&kept, Priority::Interactive).await.unwrap();
+        let next = {
+            let m = m.clone();
+            tokio::spawn(async move {
+                m.gpu_turn(100 << 30, "the voice engine", &CancellationToken::new())
+                    .await
+                    .map(|t| t.short)
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(
+            !next.is_finished(),
+            "the turn waits for the request under way"
+        );
+        drop(lease);
+        let short = tokio::time::timeout(Duration::from_secs(20), next)
+            .await
+            .expect("the turn starts once the request is done")
+            .unwrap()
+            .expect("a turn")
+            .expect("100 GB is more than the card has");
+        assert!(
+            short.contains("Kept-Chat-Q4") && short.contains("pinned"),
+            "{short}"
+        );
+        assert!(m.engine(&idle).is_none(), "the idle one went again");
         m.shutdown().await;
         fakes.abort();
+    }
+
+    #[test]
+    fn a_short_card_is_said_with_the_models_kept_on_it() {
+        assert_eq!(
+            short_note(2 << 30, 4 << 30, "the voice engine", &[]),
+            "The graphics card had 2.0 GB free of the 4.0 GB the voice engine wants, so it may have run slowly."
+        );
+        assert!(short_note(
+            1 << 30,
+            3 << 30,
+            "the voice engine",
+            &["A".into(), "B".into(), "C".into()]
+        )
+        .contains(", with A, B and C pinned in Settings > Runtime, so"));
     }
 
     #[cfg(windows)]

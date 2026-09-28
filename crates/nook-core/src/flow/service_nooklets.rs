@@ -26,12 +26,99 @@ const NO_CHAT_MODEL: &str =
     "No chat model is installed. Download one in Settings > Models, and it writes this.";
 
 /// What a document or pasted text holds before a run: its language, when it can be told, and
-/// how many words it has.
+/// how many words it has (`estimated` from its first pages, for a long PDF).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Peek {
     pub language: Option<String>,
     pub words: u32,
+    pub estimated: bool,
+}
+
+/// How many documents' words are kept, for the run after a preview.
+const KEPT_DOCUMENTS: usize = 4;
+
+/// A document as it is now: its full path, size and time written. Its words are read again once
+/// any of these changes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct DocKey {
+    path: PathBuf,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+}
+
+impl DocKey {
+    fn of(path: &Path) -> Option<DocKey> {
+        let path = std::fs::canonicalize(path).ok()?;
+        let meta = std::fs::metadata(&path).ok()?;
+        Some(DocKey {
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            path,
+        })
+    }
+}
+
+/// The documents' words Summarize and Read aloud read: kept for the run that follows a preview,
+/// read one document at a time, and a preview no one waits for any more stopped.
+#[derive(Default)]
+pub(super) struct Documents {
+    kept: Mutex<std::collections::VecDeque<(DocKey, Arc<String>)>>,
+    reading: tokio::sync::Mutex<()>,
+    /// The preview being read: its number, its document and what stops it.
+    peek: Mutex<Option<(u64, PathBuf, CancellationToken)>>,
+    peeks: std::sync::atomic::AtomicU64,
+}
+
+impl Documents {
+    fn kept(&self, key: &DocKey) -> Option<Arc<String>> {
+        let mut kept = self.kept.lock();
+        let at = kept.iter().position(|(k, _)| k == key)?;
+        let hit = kept.remove(at)?;
+        let text = hit.1.clone();
+        kept.push_front(hit);
+        Some(text)
+    }
+
+    fn keep(&self, key: DocKey, text: Arc<String>) {
+        let mut kept = self.kept.lock();
+        kept.retain(|(k, _)| k.path != key.path);
+        kept.push_front((key, text));
+        kept.truncate(KEPT_DOCUMENTS);
+    }
+
+    /// A preview of `path` begins: one of another document stops, one of the same goes on
+    /// (and this one shares it). Returns its number and what stops it.
+    fn start_peek(&self, path: &Path, stopping: &CancellationToken) -> (u64, CancellationToken) {
+        let mut peek = self.peek.lock();
+        if let Some((n, p, token)) = peek.as_ref() {
+            if p == path && !token.is_cancelled() {
+                return (*n, token.clone());
+            }
+        }
+        let n = self.peeks.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let token = stopping.child_token();
+        if let Some((_, _, old)) = peek.replace((n, path.to_path_buf(), token.clone())) {
+            old.cancel();
+        }
+        (n, token)
+    }
+
+    fn end_peek(&self, n: u64) {
+        let mut peek = self.peek.lock();
+        if peek.as_ref().is_some_and(|(m, _, _)| *m == n) {
+            *peek = None;
+        }
+    }
+
+    /// A run is to read `path`: a preview of another document it would wait for stops.
+    fn stop_peek_unless(&self, path: &Path) {
+        if let Some((_, p, token)) = self.peek.lock().as_ref() {
+            if p != path {
+                token.cancel();
+            }
+        }
+    }
 }
 
 impl FlowService {
@@ -364,34 +451,91 @@ impl FlowService {
     }
 
     /// The language and the length of a document or pasted text, before a run: for the Read
-    /// aloud picker and the card. Reads the whole document; a file whose engine is not in yet
-    /// tells nothing.
+    /// aloud picker and the card. A PDF's first pages are read, its length estimated from them;
+    /// another document is read whole, and its words kept for the run. A preview of another
+    /// document stops this one; a file whose engine is not in yet tells nothing.
     pub async fn peek(&self, input: &PlanInput) -> Peek {
-        let text = match input {
-            PlanInput::Text(t) => Some(t.clone()),
+        let (text, scale) = match input {
+            PlanInput::Text(t) => (Some(Arc::new(t.clone())), None),
             PlanInput::File(p) if reader::is_plain(p) => {
                 let p = p.clone();
-                blocking(move || reader::read_plain(&p)).await.ok()
+                (
+                    blocking(move || reader::read_plain(&p))
+                        .await
+                        .ok()
+                        .map(Arc::new),
+                    None,
+                )
             }
             PlanInput::File(p) => match self.reader.get() {
                 Some(r) if r.needs(p).is_ok_and(|n| n.is_empty()) => {
-                    let work = self.temp.join(format!("peek-{}", new_id()));
-                    let text = r.read(p, &work, &self.stopping.child_token()).await.ok();
-                    let _ =
-                        tokio::task::spawn_blocking(move || std::fs::remove_dir_all(work)).await;
-                    text
+                    let (n, cancel) = self.documents.start_peek(p, &self.stopping);
+                    let seen = self.peek_document(r.clone(), p, &cancel).await;
+                    self.documents.end_peek(n);
+                    seen.unwrap_or((None, None))
                 }
-                _ => None,
+                _ => (None, None),
             },
-            _ => None,
+            _ => (None, None),
         };
         match text {
-            Some(t) => Peek {
-                language: aloud::detect_language(&t),
-                words: aloud::word_count(&t),
-            },
+            Some(t) => {
+                let words = aloud::word_count(&t);
+                Peek {
+                    language: aloud::detect_language(&t),
+                    words: scale.map_or(words, |(pages, of)| {
+                        (u64::from(words) * of as u64 / pages.max(1) as u64) as u32
+                    }),
+                    estimated: scale.is_some(),
+                }
+            }
             None => Peek::default(),
         }
+    }
+
+    /// A document's words for a preview: those kept from an earlier reading, else a sample of
+    /// its first pages (with the pages it is from, and of), else the whole read and kept.
+    async fn peek_document(
+        &self,
+        reader: Arc<dyn Reader>,
+        path: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<(Option<Arc<String>>, Option<(usize, usize)>)> {
+        if let Some(text) = DocKey::of(path).and_then(|k| self.documents.kept(&k)) {
+            return Ok((Some(text), None));
+        }
+        if let Some(s) = reader.sample(path, cancel).await? {
+            let scale = (s.pages < s.of).then_some((s.pages, s.of));
+            return Ok((Some(Arc::new(s.text)), scale));
+        }
+        let work = self.temp.join(format!("peek-{}", new_id()));
+        let text = self.read_document(reader, path, &work, cancel).await;
+        let _ = tokio::task::spawn_blocking(move || std::fs::remove_dir_all(work)).await;
+        Ok((Some(text?), None))
+    }
+
+    /// The words of the document `path`, kept from the last reading while the file is
+    /// unchanged, else read (one document at a time) and kept.
+    async fn read_document(
+        &self,
+        reader: Arc<dyn Reader>,
+        path: &Path,
+        work: &Path,
+        cancel: &CancellationToken,
+    ) -> Result<Arc<String>> {
+        let key = DocKey::of(path);
+        let _one = tokio::select! {
+            one = self.documents.reading.lock() => one,
+            _ = cancel.cancelled() => return Err(Stopped.into()),
+        };
+        if let Some(text) = key.as_ref().and_then(|k| self.documents.kept(k)) {
+            return Ok(text);
+        }
+        let text = Arc::new(reader.read(path, work, cancel).await?);
+        if let Some(key) = key {
+            self.documents.keep(key, text.clone());
+        }
+        Ok(text)
     }
 
     // ------------------------------------------------------------------ the runs
@@ -414,7 +558,11 @@ impl FlowService {
                 .get()
                 .ok_or_else(|| anyhow!("Nook cannot read documents here."))?
                 .clone();
-            reader.read(&input, &work.join("read"), cancel).await?
+            self.documents.stop_peek_unless(&input);
+            let text = self
+                .read_document(reader, &input, &work.join("read"), cancel)
+                .await?;
+            String::clone(&text)
         };
         stop_if(cancel)?;
         if !text.chars().any(char::is_alphanumeric) {
@@ -660,7 +808,7 @@ impl FlowService {
             female_speaker: run.female,
             out_dir: work.join("spoken"),
         };
-        let clips = self.speak_with(id, &request, &facts, cancel).await?;
+        let (clips, short) = self.speak_with(id, &request, &facts, cancel).await?;
         stop_if(cancel)?;
 
         // One track, the lines one after the other.
@@ -688,7 +836,7 @@ impl FlowService {
             .collect();
         let duration = segments.last().map_or(0.0, |s| s.end);
         let missing = clips.iter().filter(|c| c.is_none()).count();
-        let mut note = unspoken_note(missing, lines.len());
+        let mut note = joined(short, unspoken_note(missing, lines.len()));
         let mut track = wav.clone();
         if let Some(ffmpeg) = &facts.ffmpeg {
             let m4a = folder.join(format!("{base}.m4a"));

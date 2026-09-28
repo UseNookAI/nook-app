@@ -380,6 +380,8 @@ pub struct FlowService {
     stopping: CancellationToken,
     /// What reads documents (the converter), given once it is built.
     reader: std::sync::OnceLock<Arc<dyn Reader>>,
+    /// The documents' words read lately, and the preview being read.
+    documents: nooklets::Documents,
     me: Weak<FlowService>,
 }
 
@@ -426,6 +428,7 @@ impl FlowService {
             worker: Mutex::new(None),
             stopping: CancellationToken::new(),
             reader: std::sync::OnceLock::new(),
+            documents: nooklets::Documents::default(),
             me: me.clone(),
         })
     }
@@ -1400,7 +1403,7 @@ impl FlowService {
             .speak_with(&run.id, &request(choice, "spoken"), facts, cancel)
             .await;
         let (spoken, used, note) = match first {
-            Ok(s) => (s, choice.clone(), None),
+            Ok((s, short)) => (s, choice.clone(), short),
             Err(e) if e.is::<Stopped>() => return Err(e),
             Err(e) => {
                 let Some(standard) = self
@@ -1416,7 +1419,7 @@ impl FlowService {
                     choice.voice.name,
                     standard.voice.name
                 );
-                let spoken = self
+                let (spoken, short) = self
                     .speak_with(
                         &run.id,
                         &request(&standard, "spoken-standard"),
@@ -1428,7 +1431,11 @@ impl FlowService {
                     "{} could not speak in the speaker's voice, so it is spoken in a standard voice by {}.",
                     choice.voice.name, standard.voice.name
                 );
-                (spoken, standard, Some(note))
+                (
+                    spoken,
+                    standard,
+                    Some(joined(Some(note), short).unwrap_or_default()),
+                )
             }
         };
         let missing = spoken.iter().filter(|c| c.is_none()).count();
@@ -1436,10 +1443,7 @@ impl FlowService {
         for (j, clip) in spoken.into_iter().enumerate() {
             clips[line_of[j]] = clip;
         }
-        let note = match (note, unspoken_note(missing, line_of.len())) {
-            (Some(a), Some(b)) => Some(format!("{a} {b}")),
-            (a, b) => a.or(b),
-        };
+        let note = joined(note, unspoken_note(missing, line_of.len()));
         Ok(Spoken {
             clips,
             choice: used,
@@ -1447,13 +1451,15 @@ impl FlowService {
         })
     }
 
+    /// The lines spoken, a clip for each (None where the voice gave none), and what the person
+    /// reads when the card was short of memory for the voice.
     async fn speak_with(
         &self,
         id: &str,
         request: &Request,
         facts: &Facts,
         cancel: &CancellationToken,
-    ) -> Result<Vec<Option<PathBuf>>> {
+    ) -> Result<(Vec<Option<PathBuf>>, Option<String>)> {
         let speaker: Arc<dyn Speaker> = match &self.speaker {
             Some(s) => s.clone(),
             None => {
@@ -1470,7 +1476,7 @@ impl FlowService {
         // Qwen3-TTS (a 1.9 GB file) peaked at 3.4 GB on an RTX 4060 with CUDA, 3.9 GB with
         // Vulkan (2026-09-26).
         let need = request.voice.file.bytes * 3 / 2 + (1 << 30);
-        let Some(_turn) = self.runtime.gpu_turn(need, cancel).await else {
+        let Some(turn) = self.runtime.gpu_turn(need, cancel).await else {
             return Err(Stopped.into());
         };
         let total = request.lines.len();
@@ -1521,7 +1527,15 @@ impl FlowService {
             }
         }
         self.stage(id, Stage::Speaking, total, total);
-        Ok(clips)
+        Ok((clips, turn.short))
+    }
+}
+
+/// Two notes as one, either or both of which may be missing.
+pub(super) fn joined(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{a} {b}")),
+        (a, b) => a.or(b),
     }
 }
 

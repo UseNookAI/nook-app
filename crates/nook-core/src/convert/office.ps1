@@ -13,6 +13,10 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $missing = [Type]::Missing
+# A document's macros never run: Office starts automation with macros enabled, and neither a
+# read-only open nor hidden alerts change that. msoAutomationSecurityForceDisable is set on the
+# program before a file is opened and put back after (PowerPoint may be the person's own).
+$forceDisable = 3
 # A password-protected file fails on this made-up password instead of asking for one.
 $noPassword = 'nook-no-password'
 
@@ -45,7 +49,9 @@ switch ($App) {
       $had = (Get-ItemProperty -Path $options -Name DisableConvertPdfWarning -ErrorAction SilentlyContinue).DisableConvertPdfWarning
       Set-ItemProperty -Path $options -Name DisableConvertPdfWarning -Value 1 -Type DWord
     }
+    $security = $word.AutomationSecurity
     try {
+      $word.AutomationSecurity = $forceDisable
       $word.Visible = $false
       $word.DisplayAlerts = 0
       # Open(FileName, ConfirmConversions, ReadOnly, AddToRecentFiles, PasswordDocument,
@@ -60,6 +66,7 @@ switch ($App) {
         $doc.SaveAs2([ref]$target, [ref]$as)
       } finally { $doc.Close([ref]$noChanges); Release $doc }
     } finally {
+      $word.AutomationSecurity = $security
       $word.Quit([ref]$noChanges); Release $word
       if ($pdf) {
         if ($null -eq $had) { Remove-ItemProperty -Path $options -Name DisableConvertPdfWarning -ErrorAction SilentlyContinue }
@@ -71,7 +78,12 @@ switch ($App) {
     $before = Running 'EXCEL'
     $excel = New-Object -ComObject Excel.Application
     Started 'EXCEL' $before
+    $security = $excel.AutomationSecurity
     try {
+      $excel.AutomationSecurity = $forceDisable
+      # Workbook_Open and the other events do not fire either; Auto_Open macros (an Excel 4.0
+      # macro sheet's too) are never run by an Open from automation.
+      $excel.EnableEvents = $false
       $excel.Visible = $false
       $excel.DisplayAlerts = $false
       $excel.AskToUpdateLinks = $false
@@ -80,7 +92,7 @@ switch ($App) {
       try {
         if ($Format -lt 0) { $book.ExportAsFixedFormat(0, $Out) } else { $book.SaveAs($Out, $Format) }
       } finally { $book.Close($false); Release $book }
-    } finally { $excel.Quit(); Release $excel }
+    } finally { $excel.AutomationSecurity = $security; $excel.Quit(); Release $excel }
   }
   'powerpoint' {
     # PowerPoint runs once: when it is open already, this is the person's own, and it stays open.
@@ -88,11 +100,14 @@ switch ($App) {
     $ppt = New-Object -ComObject PowerPoint.Application
     Started 'POWERPNT' $running
     $before = $ppt.Presentations.Count
+    $security = $ppt.AutomationSecurity
     try {
+      $ppt.AutomationSecurity = $forceDisable
       # Open(FileName, ReadOnly, Untitled, WithWindow)
       $deck = $ppt.Presentations.Open($In, -1, 0, 0)
       try { $deck.SaveAs($Out, $Format) } finally { $deck.Close(); Release $deck }
     } finally {
+      $ppt.AutomationSecurity = $security
       if ($before -eq 0 -and $ppt.Presentations.Count -eq 0) { $ppt.Quit() }
       Release $ppt
     }

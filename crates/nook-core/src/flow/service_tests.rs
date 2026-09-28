@@ -45,6 +45,11 @@ impl Scripted {
     }
 }
 
+thread_local! {
+    /// What the card's turn says it is short of, in this test.
+    static SHORT_CARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
 #[async_trait]
 impl FlowRuntime for Scripted {
     fn facts(&self) -> Facts {
@@ -74,8 +79,11 @@ impl FlowRuntime for Scripted {
         &'a self,
         _need: u64,
         _cancel: &CancellationToken,
-    ) -> Option<Box<dyn Send + 'a>> {
-        Some(Box::new(()))
+    ) -> Option<crate::flow::runtime::Turn<'a>> {
+        Some(crate::flow::runtime::Turn {
+            hold: Box::new(()),
+            short: SHORT_CARD.with(|s| s.borrow().clone()),
+        })
     }
     async fn install_component(
         &self,

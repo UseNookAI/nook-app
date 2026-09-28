@@ -4,9 +4,10 @@
 use super::*;
 use crate::flow::audio::tests::write_tone;
 use crate::flow::reader::ReaderNeed;
+use crate::flow::reader::Sample;
 use crate::flow::voice_engine::SpokenProgress;
 use crate::flow::voices::VoiceFile;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 /// Whisper hears a short meeting; the chat model answers every question with the same notes and
 /// remembers what it was told.
@@ -45,8 +46,11 @@ impl FlowRuntime for Scripted {
         &'a self,
         _need: u64,
         _cancel: &CancellationToken,
-    ) -> Option<Box<dyn Send + 'a>> {
-        Some(Box::new(()))
+    ) -> Option<crate::flow::runtime::Turn<'a>> {
+        Some(crate::flow::runtime::Turn {
+            hold: Box::new(()),
+            short: SHORT_CARD.with(|s| s.borrow().clone()),
+        })
     }
     async fn install_component(
         &self,
@@ -111,15 +115,23 @@ impl Speaker for Voice1 {
     }
 }
 
-/// Reads a `.docx` as fixed Markdown once "Pandoc" is in.
+thread_local! {
+    /// What the card's turn says it is short of, in this test.
+    static SHORT_CARD: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Reads a `.docx` as fixed Markdown once "Pandoc" is in, counting its readings; one named
+/// "slow" is read until it is stopped. A `.pdf` is sampled: two of its twenty pages.
 struct Docs {
     pandoc_in: AtomicBool,
+    reads: AtomicUsize,
 }
 
 #[async_trait]
 impl Reader for Docs {
     fn needs(&self, path: &Path) -> std::result::Result<Vec<ReaderNeed>, String> {
-        if !path.to_string_lossy().ends_with(".docx") {
+        let name = path.to_string_lossy();
+        if !name.ends_with(".docx") && !name.ends_with(".pdf") {
             return Err("Nook does not read .xyz files.".into());
         }
         Ok(if self.pandoc_in.load(Ordering::SeqCst) {
@@ -132,13 +144,21 @@ impl Reader for Docs {
             }]
         })
     }
-    async fn read(
-        &self,
-        _path: &Path,
-        _work: &Path,
-        _cancel: &CancellationToken,
-    ) -> Result<String> {
+    async fn read(&self, path: &Path, _work: &Path, cancel: &CancellationToken) -> Result<String> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
+        if path.to_string_lossy().contains("slow") {
+            cancel.cancelled().await;
+            return Err(Stopped.into());
+        }
         Ok("# Lease\n\nThe tenant pays **€900** a month. Notice is three months.".into())
+    }
+
+    async fn sample(&self, path: &Path, _cancel: &CancellationToken) -> Result<Option<Sample>> {
+        Ok(path.to_string_lossy().ends_with(".pdf").then(|| Sample {
+            text: "The tenant pays the rent on the first day of each month.".into(),
+            pages: 2,
+            of: 20,
+        }))
     }
 }
 
@@ -207,6 +227,7 @@ fn rig() -> Rig {
     );
     let docs = Arc::new(Docs {
         pandoc_in: AtomicBool::new(false),
+        reads: AtomicUsize::new(0),
     });
     service.set_reader(docs.clone());
     Rig {
@@ -540,6 +561,71 @@ async fn a_look_before_a_run_tells_the_language_and_the_words() {
     );
     rig.docs.pandoc_in.store(true, Ordering::SeqCst);
     assert_eq!(rig.service.peek(&PlanInput::File(doc)).await.words, 11);
+
+    // A long PDF: its first pages are read, and its length estimated from them.
+    let pdf = rig.dir.path().join("scan.pdf");
+    std::fs::write(&pdf, b"%PDF").unwrap();
+    let peek = rig.service.peek(&PlanInput::File(pdf)).await;
+    assert_eq!((peek.words, peek.estimated), (120, true));
+    assert_eq!(peek.language.as_deref(), Some("en"));
+}
+
+#[tokio::test]
+async fn a_document_read_for_its_preview_is_not_read_again_for_the_run() {
+    let rig = rig();
+    rig.docs.pandoc_in.store(true, Ordering::SeqCst);
+    let doc = rig.dir.path().join("lease.docx");
+    std::fs::write(&doc, b"PK").unwrap();
+    let peek = rig.service.peek(&PlanInput::File(doc.clone())).await;
+    assert_eq!((peek.words, peek.estimated), (11, false));
+    assert_eq!(rig.docs.reads.load(Ordering::SeqCst), 1);
+    rig.service.peek(&PlanInput::File(doc.clone())).await;
+    let run = rig
+        .service
+        .submit_for(&PlanInput::File(doc.clone()), &order(SUMMARIZE))
+        .unwrap();
+    let done = finished(&rig.service, &run.id).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    assert_eq!(
+        rig.docs.reads.load(Ordering::SeqCst),
+        1,
+        "kept from the preview"
+    );
+
+    // Changed on disk: read again.
+    std::fs::write(&doc, b"PK and more").unwrap();
+    rig.service.peek(&PlanInput::File(doc)).await;
+    assert_eq!(rig.docs.reads.load(Ordering::SeqCst), 2);
+}
+
+#[tokio::test]
+async fn choosing_another_document_stops_the_last_ones_preview() {
+    let rig = rig();
+    rig.docs.pandoc_in.store(true, Ordering::SeqCst);
+    let slow = rig.dir.path().join("slow.docx");
+    let quick = rig.dir.path().join("lease.docx");
+    std::fs::write(&slow, b"PK").unwrap();
+    std::fs::write(&quick, b"PK").unwrap();
+    let service = rig.service.clone();
+    let first = tokio::spawn({
+        let slow = slow.clone();
+        async move { service.peek(&PlanInput::File(slow)).await }
+    });
+    while rig.docs.reads.load(Ordering::SeqCst) == 0 {
+        tokio::time::sleep(Duration::from_millis(1)).await;
+    }
+    let second = tokio::time::timeout(
+        Duration::from_secs(5),
+        rig.service.peek(&PlanInput::File(quick)),
+    )
+    .await
+    .expect("the second preview does not wait for the first");
+    assert_eq!(second.words, 11);
+    let first = tokio::time::timeout(Duration::from_secs(5), first)
+        .await
+        .expect("the first preview stopped")
+        .unwrap();
+    assert_eq!(first, Peek::default());
 }
 
 #[tokio::test]
@@ -574,5 +660,26 @@ async fn a_line_the_voice_skips_is_asked_for_again_and_one_it_never_speaks_is_sa
     assert_eq!(
         done.note.as_deref(),
         Some("1 of 3 lines could not be spoken, so it is silent in the track.")
+    );
+}
+
+#[tokio::test]
+async fn a_card_short_of_memory_is_said_on_the_reading() {
+    SHORT_CARD.with(|s| *s.borrow_mut() = Some("The graphics card had 1.0 GB free.".into()));
+    let rig = rig();
+    let o = Order {
+        language: Some("en".into()),
+        ..order(READ_ALOUD)
+    };
+    let run = rig
+        .service
+        .submit_for(&PlanInput::Text("A plain line to read.".into()), &o)
+        .unwrap();
+    let done = finished(&rig.service, &run.id).await;
+    assert_eq!(done.status, Status::Done, "{:?}", done.error);
+    assert!(
+        done.note.as_deref().unwrap_or("").contains("1.0 GB free"),
+        "{:?}",
+        done.note
     );
 }

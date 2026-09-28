@@ -304,6 +304,7 @@ pub async fn libre_office(
     };
     let outdir = work.join("office-out");
     std::fs::create_dir_all(&outdir)?;
+    no_macros(profile)?;
     let mut cmd = crate::process::command(soffice);
     cmd.args([
         "--headless",
@@ -333,9 +334,97 @@ pub async fn libre_office(
         .with_context(|| format!("Could not write {}", out.display()))
 }
 
+/// The settings LibreOffice's profile gets before every run, so a document's macros never run:
+/// macros off altogether, and the "very high" level that runs only those from trusted places
+/// (there are none) should the first be ignored.
+const NO_MACROS: [&str; 2] = [
+    r#"<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="DisableMacrosExecution" oor:op="fuse"><value>true</value></prop></item>"#,
+    r#"<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>"#,
+];
+
+/// Writes [`NO_MACROS`] into the profile's `user/registrymodifications.xcu`, replacing whatever
+/// the two settings were, keeping every other line LibreOffice keeps there.
+fn no_macros(profile: &Path) -> Result<()> {
+    let file = profile.join("user").join("registrymodifications.xcu");
+    let old = std::fs::read_to_string(&file).unwrap_or_default();
+    let new = with_no_macros(&old);
+    if new != old {
+        std::fs::create_dir_all(file.parent().unwrap_or(profile))?;
+        std::fs::write(&file, new)
+            .with_context(|| format!("Could not set up LibreOffice in {}", profile.display()))?;
+    }
+    Ok(())
+}
+
+fn with_no_macros(xcu: &str) -> String {
+    const END: &str = "</oor:items>";
+    let setting = |line: &str| {
+        line.contains("/Security/Scripting\"")
+            && (line.contains("\"DisableMacrosExecution\"")
+                || line.contains("\"MacroSecurityLevel\""))
+    };
+    if !xcu.contains(END) {
+        return format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<oor:items xmlns:oor=\"http://openoffice.org/2001/registry\" xmlns:xs=\"http://www.w3.org/2001/XMLSchema\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n{}\n{END}\n",
+            NO_MACROS.join("\n")
+        );
+    }
+    let mut out = String::with_capacity(xcu.len() + 400);
+    for line in xcu.lines() {
+        if NO_MACROS.contains(&line) || !setting(line) {
+            if let Some(at) = line.find(END) {
+                // Ours go in once, just before the end, whether or not they were there already.
+                out.push_str(&line[..at]);
+                for item in NO_MACROS {
+                    if !xcu.lines().any(|l| l == item) {
+                        out.push_str(item);
+                        out.push('\n');
+                    }
+                }
+                out.push_str(&line[at..]);
+            } else {
+                out.push_str(line);
+            }
+            out.push('\n');
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn libre_office_profiles_turn_macros_off() {
+        let fresh = with_no_macros("");
+        for item in NO_MACROS {
+            assert_eq!(fresh.matches(item).count(), 1, "{fresh}");
+        }
+        assert!(fresh.trim_end().ends_with("</oor:items>"));
+        // Settled: nothing changes, so the file is not rewritten.
+        assert_eq!(with_no_macros(&fresh), fresh);
+
+        // A profile LibreOffice wrote, with macros at "low" and other settings to keep.
+        let kept = r#"<item oor:path="/org.openoffice.Setup/Office"><prop oor:name="ooSetupInstCompleted" oor:op="fuse"><value>true</value></prop></item>"#;
+        let low = r#"<item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>0</value></prop></item>"#;
+        let written = format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<oor:items xmlns:oor=\"http://openoffice.org/2001/registry\">\n{kept}\n{low}\n</oor:items>\n"
+        );
+        let fixed = with_no_macros(&written);
+        assert!(fixed.contains(kept));
+        assert!(!fixed.contains(low));
+        for item in NO_MACROS {
+            assert_eq!(fixed.matches(item).count(), 1, "{fixed}");
+        }
+        assert!(fixed.trim_end().ends_with("</oor:items>"));
+        assert_eq!(with_no_macros(&fixed), fixed);
+
+        let dir = tempfile::tempdir().unwrap();
+        no_macros(dir.path()).unwrap();
+        let file = dir.path().join("user").join("registrymodifications.xcu");
+        assert_eq!(std::fs::read_to_string(file).unwrap(), fresh);
+    }
 
     #[test]
     fn addresses_and_formats() {

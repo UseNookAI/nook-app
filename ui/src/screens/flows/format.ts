@@ -88,7 +88,8 @@ export function translationText(run: Run): string {
 }
 
 /** "2,480 words". */
-export function wordsText(words: number): string {
+export function wordsText(words: number, estimated = false): string {
+  if (estimated) return `About ${(words >= 1000 ? Math.round(words / 100) * 100 : words).toLocaleString("en-US")} words`;
   return `${words.toLocaleString("en-US")} ${words === 1 ? "word" : "words"}`;
 }
 
