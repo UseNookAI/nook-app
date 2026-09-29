@@ -241,3 +241,14 @@ and engines are imported once (see above) and its models are read where they are
 on the stable channel with the default theme, and setup counts as done when the old app was used.
 The handover's silent uninstall of the Kotlin Nook keeps `%LOCALAPPDATA%\Nook`, and this app's
 uninstaller never touches it.
+
+## License
+
+Nook's source is public under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): free for
+personal use and any other noncommercial purpose, and for charities, schools, public research and
+government bodies. Commercial use needs a separate license from us. That makes Nook
+source-available, not open source.
+
+The license covers the code only; it grants no rights to the Nook name or logo, or to the Nooklet
+characters. What Nook downloads or builds on (engines, models, Rust and npm packages) keeps its own
+license.

@@ -5,7 +5,7 @@ members = ["crates/nook-core", "crates/nook-release", "src-tauri"]
 [workspace.package]
 version = "0.5.0"
 edition = "2021"
-license = "Proprietary"
+license = "PolyForm-Noncommercial-1.0.0"
 authors = ["Nook"]
 rust-version = "1.85"
 
