@@ -149,6 +149,9 @@ pub struct GpuInventory {
     /// The Vulkan engine's server executable when it is installed; none until then.
     vulkan_engine: RwLock<Option<EngineLocator>>,
     nvidia_smi: OsString,
+    /// Whether a Mac's GPU is read through Metal: the app's inventory; not one standing in for
+    /// another machine's driver (tests, QA).
+    metal: bool,
 }
 
 impl Default for GpuInventory {
@@ -159,12 +162,17 @@ impl Default for GpuInventory {
 
 impl GpuInventory {
     pub fn new() -> GpuInventory {
-        GpuInventory::with_nvidia_smi("nvidia-smi")
+        GpuInventory {
+            metal: cfg!(target_os = "macos"),
+            ..GpuInventory::with_nvidia_smi("nvidia-smi")
+        }
     }
 
-    /// An inventory that runs `program` in place of `nvidia-smi` (tests, QA).
+    /// An inventory that runs `program` in place of `nvidia-smi` (tests, QA). It reads no Metal
+    /// device, so it answers the same on a Mac.
     pub fn with_nvidia_smi(program: impl Into<OsString>) -> GpuInventory {
         GpuInventory {
+            metal: false,
             state: Mutex::new(State {
                 last_seen: Vec::new(),
                 source: Source::None,
@@ -284,7 +292,7 @@ impl GpuInventory {
     }
 
     async fn refresh_locked(&self) -> Vec<GpuDevice> {
-        if cfg!(target_os = "macos") {
+        if self.metal {
             let reading = query_metal();
             let devices = reading.devices.clone();
             let mut state = self.state.lock();
@@ -389,9 +397,9 @@ impl GpuInventory {
     /// device), Vulkan elsewhere.
     pub fn other_gpu_backend(&self) -> Backend {
         if cfg!(target_os = "macos") {
-            let state = self.state.lock();
-            if state.source == Source::Metal || state.last_seen.is_empty() {
-                // Before the first reading every Apple silicon Mac has Metal.
+            // Before the first reading every Apple silicon Mac has Metal; after one, Metal when
+            // it answered, the processor when it found nothing.
+            if !*self.first_reading.borrow() || self.state.lock().source == Source::Metal {
                 Backend::Metal
             } else {
                 Backend::Cpu

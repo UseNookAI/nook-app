@@ -238,7 +238,10 @@ fn from_path(path: Option<String>) -> Option<String> {
         }
         // A link (Homebrew's) counts as the JDK it leads to; Apple's /usr/bin/javac is a stub
         // that only asks for a JDK to be installed.
-        let real = if cfg!(unix) {
+        let linked = javac
+            .symlink_metadata()
+            .is_ok_and(|m| m.file_type().is_symlink());
+        let real = if cfg!(unix) && linked {
             std::fs::canonicalize(&javac).unwrap_or(javac)
         } else {
             javac

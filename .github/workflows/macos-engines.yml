@@ -31,7 +31,11 @@ env:
   FFMPEG_TAG: n8.1.3
   # llama.cpp's Mac builds run from macOS 13.3; so do these.
   MACOSX_DEPLOYMENT_TARGET: "13.3"
-  RELEASE: ${{ github.event.inputs.release || '1' }}
+  # tar leaves out the AppleDouble ._ files that would stand beside each folder in the archive.
+  COPYFILE_DISABLE: "1"
+  # A push builds this release; raise it when a push should make a new one (1 had an FFmpeg that
+  # needed Homebrew's X11 libraries).
+  RELEASE: ${{ github.event.inputs.release || '2' }}
 
 jobs:
   whisper:
@@ -50,6 +54,7 @@ jobs:
           mkdir -p "pkg/whisper-$WHISPER_TAG"
           cp build/bin/whisper-server build/bin/whisper-cli src/LICENSE "pkg/whisper-$WHISPER_TAG/"
           otool -L "pkg/whisper-$WHISPER_TAG/whisper-server"
+          ! otool -L pkg/whisper-$WHISPER_TAG/whisper-* | grep -E '/opt/homebrew|/usr/local|@rpath'
           tar -C pkg -czf "whisper-$WHISPER_TAG-bin-macos-arm64-metal.tar.gz" "whisper-$WHISPER_TAG"
 
       - uses: actions/upload-artifact@v4
@@ -79,6 +84,7 @@ jobs:
           cp src/LICENSE "pkg/sd-$SD_TAG/"
           ls -la "pkg/sd-$SD_TAG"
           otool -L pkg/sd-$SD_TAG/sd*
+          ! otool -L pkg/sd-$SD_TAG/sd* | grep -E '/opt/homebrew|/usr/local|@rpath'
           tar -C pkg -czf "sd-$SD_TAG-bin-macos-arm64-metal.tar.gz" "sd-$SD_TAG"
 
       - uses: actions/upload-artifact@v4
@@ -91,6 +97,7 @@ jobs:
     runs-on: macos-14
     steps:
       - name: Build FFmpeg (LGPL, static)
+        # Nothing from Homebrew is linked in (the runner has X11's libraries, a Mac does not).
         run: |
           brew install nasm pkg-config
           git clone --depth 1 --branch "$FFMPEG_TAG" https://github.com/FFmpeg/FFmpeg src
@@ -98,6 +105,7 @@ jobs:
           ./configure --prefix="$PWD/../out" --disable-gpl --disable-nonfree \
             --enable-static --disable-shared --disable-doc --disable-debug --disable-ffplay \
             --enable-videotoolbox --enable-audiotoolbox --enable-securetransport \
+            --disable-xlib --disable-libxcb --disable-sdl2 --disable-lzma \
             --extra-cflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" \
             --extra-ldflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
           make -j "$(sysctl -n hw.ncpu)"
@@ -110,6 +118,7 @@ jobs:
           out/bin/ffmpeg -hide_banner -devices | grep avfoundation
           out/bin/ffmpeg -hide_banner -protocols | grep -E 'rtmps|tls'
           otool -L out/bin/ffmpeg
+          ! otool -L out/bin/ffmpeg out/bin/ffprobe | grep -E '/opt/homebrew|/usr/local|@rpath'
 
       - name: Package
         run: |

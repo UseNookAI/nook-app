@@ -259,8 +259,12 @@ pub fn raw_input(video: &Video, pipe: &str) -> Vec<String> {
         &video.fps.to_string(),
         "-use_wallclock_as_timestamps",
         "1",
+        "-probesize",
+        "32",
+        "-analyzeduration",
+        "0",
         "-thread_queue_size",
-        "64",
+        "8",
         "-i",
         pipe,
     ]

@@ -29,9 +29,11 @@ use objc2_core_graphics::{
 use objc2_core_media::{CMBlockBuffer, CMSampleBuffer, CMTime};
 use objc2_core_video::{
     kCVPixelFormatType_32BGRA, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-    CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRowOfPlane,
-    CVPixelBufferGetHeightOfPlane, CVPixelBufferGetWidthOfPlane, CVPixelBufferLockBaseAddress,
-    CVPixelBufferLockFlags, CVPixelBufferUnlockBaseAddress,
+    CVPixelBufferGetBaseAddress, CVPixelBufferGetBaseAddressOfPlane, CVPixelBufferGetBytesPerRow,
+    CVPixelBufferGetBytesPerRowOfPlane, CVPixelBufferGetHeight, CVPixelBufferGetHeightOfPlane,
+    CVPixelBufferGetPlaneCount, CVPixelBufferGetWidth, CVPixelBufferGetWidthOfPlane,
+    CVPixelBufferIsPlanar, CVPixelBufferLockBaseAddress, CVPixelBufferLockFlags,
+    CVPixelBufferUnlockBaseAddress,
 };
 use objc2_foundation::{NSArray, NSError};
 use objc2_screen_capture_kit::{
@@ -331,20 +333,37 @@ fn frame_of(sample: &CMSampleBuffer, pixels: Pixels) -> Option<Frame> {
         if CVPixelBufferLockBaseAddress(&buffer, CVPixelBufferLockFlags::ReadOnly) != 0 {
             return None;
         }
-        let planes: &[(usize, usize)] = match pixels {
-            // Y at one byte a pixel, then CbCr at two bytes per two pixels, half as many rows.
-            Pixels::Nv12 => &[(0, 1), (1, 2)],
-            Pixels::Bgra => &[(0, 4)],
+        // (start, bytes per row, rows, bytes of pixels in a row) of each part: NV12 is two planes,
+        // Y at one byte a pixel, then CbCr at two bytes per two pixels, half as many rows; BGRA
+        // is one packed buffer, which has no planes to ask about.
+        let parts: Vec<(*const u8, usize, usize, usize)> = if CVPixelBufferIsPlanar(&buffer) {
+            let bytes_per = match pixels {
+                Pixels::Nv12 => [1, 2],
+                Pixels::Bgra => [4, 4],
+            };
+            (0..CVPixelBufferGetPlaneCount(&buffer).min(2))
+                .map(|plane| {
+                    (
+                        CVPixelBufferGetBaseAddressOfPlane(&buffer, plane) as *const u8,
+                        CVPixelBufferGetBytesPerRowOfPlane(&buffer, plane),
+                        CVPixelBufferGetHeightOfPlane(&buffer, plane),
+                        CVPixelBufferGetWidthOfPlane(&buffer, plane) * bytes_per[plane],
+                    )
+                })
+                .collect()
+        } else {
+            vec![(
+                CVPixelBufferGetBaseAddress(&buffer) as *const u8,
+                CVPixelBufferGetBytesPerRow(&buffer),
+                CVPixelBufferGetHeight(&buffer),
+                CVPixelBufferGetWidth(&buffer) * 4,
+            )]
         };
-        let width = CVPixelBufferGetWidthOfPlane(&buffer, 0);
-        let height = CVPixelBufferGetHeightOfPlane(&buffer, 0);
+        let width = CVPixelBufferGetWidth(&buffer);
+        let height = CVPixelBufferGetHeight(&buffer);
         let mut data =
             Vec::with_capacity(width * height * if pixels == Pixels::Nv12 { 3 } else { 8 } / 2);
-        for &(plane, bytes_per) in planes {
-            let base = CVPixelBufferGetBaseAddressOfPlane(&buffer, plane) as *const u8;
-            let stride = CVPixelBufferGetBytesPerRowOfPlane(&buffer, plane);
-            let rows = CVPixelBufferGetHeightOfPlane(&buffer, plane);
-            let row = CVPixelBufferGetWidthOfPlane(&buffer, plane) * bytes_per;
+        for (base, stride, rows, row) in parts {
             if base.is_null() || row > stride {
                 CVPixelBufferUnlockBaseAddress(&buffer, CVPixelBufferLockFlags::ReadOnly);
                 return None;
@@ -462,23 +481,36 @@ fn plan(source: &Source, size: (u32, u32), fps: u32, cursor: bool, pixels: Pixel
                 .find(|d| u64::from(d.displayID()) == handle)
                 .ok_or_else(|| anyhow!("That screen is no longer connected."))
         };
+        // Nook's own recording windows are left out, the controls included, which open only once
+        // the capture runs: the whole app is left out but for its main window, and windows it
+        // opens later are left out with it.
         let own = std::process::id() as i32;
-        let ours: Vec<Retained<SCWindow>> = content
+        let app = content
+            .applications()
+            .to_vec()
+            .into_iter()
+            .find(|a| a.processID() == own);
+        let (main, recorder): (Vec<Retained<SCWindow>>, Vec<Retained<SCWindow>>) = content
             .windows()
             .to_vec()
             .into_iter()
-            .filter(|w| {
-                w.owningApplication().is_some_and(|a| a.processID() == own)
-                    && w.title()
-                        .is_some_and(|t| OWN_TITLES.contains(&t.to_string().as_str()))
-            })
-            .collect();
-        let without_ours = |d: &SCDisplay| {
-            SCContentFilter::initWithDisplay_excludingWindows(
+            .filter(|w| w.owningApplication().is_some_and(|a| a.processID() == own))
+            .partition(|w| {
+                !w.title()
+                    .is_some_and(|t| OWN_TITLES.contains(&t.to_string().as_str()))
+            });
+        let without_ours = |d: &SCDisplay| match &app {
+            Some(app) => SCContentFilter::initWithDisplay_excludingApplications_exceptingWindows(
                 SCContentFilter::alloc(),
                 d,
-                &NSArray::from_retained_slice(&ours),
-            )
+                &NSArray::from_retained_slice(std::slice::from_ref(app)),
+                &NSArray::from_retained_slice(&main),
+            ),
+            None => SCContentFilter::initWithDisplay_excludingWindows(
+                SCContentFilter::alloc(),
+                d,
+                &NSArray::from_retained_slice(&recorder),
+            ),
         };
         let filter = match source {
             Source::Screen { handle } => without_ours(&*display(*handle)?),

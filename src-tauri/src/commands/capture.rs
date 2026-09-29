@@ -46,9 +46,15 @@ pub async fn capture_listen(state: State<'_, AppState>, audio: Vec<AudioSource>)
     blocking(move || capture.listen(&audio)).await
 }
 
+/// Off the main thread: a Mac's sound capture takes a moment to stop.
 #[tauri::command]
-pub fn capture_stop_listening(state: State<'_, AppState>) {
-    state.0.capture.stop_listening();
+pub async fn capture_stop_listening(state: State<'_, AppState>) -> CmdResult<()> {
+    let capture = state.0.capture.clone();
+    blocking(move || {
+        capture.stop_listening();
+        Ok(())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -143,11 +149,15 @@ fn open_bar(app: &AppHandle, monitor: Option<u64>) {
     if let Ok(hwnd) = bar.hwnd() {
         sources::exclude_from_capture(hwnd.0 as isize);
     }
-    // The NSWindow is only touched on the main thread.
+    // The NSWindow is only asked for and touched on the main thread, while the bar is there.
     #[cfg(target_os = "macos")]
-    if let Ok(ns_window) = bar.ns_window() {
-        let ns_window = ns_window as isize;
-        let _ = bar.run_on_main_thread(move || sources::exclude_from_capture(ns_window));
+    {
+        let window = bar.clone();
+        let _ = bar.run_on_main_thread(move || {
+            if let Ok(ns_window) = window.ns_window() {
+                sources::exclude_from_capture(ns_window as isize);
+            }
+        });
     }
     let screen = sources::screens()
         .into_iter()

@@ -437,6 +437,13 @@ pub fn environment(base: &BTreeMap<String, String>, ws: &Workspace) -> Vec<(Stri
     let mut moved = vec![("TEMP", at(&["tmp"])), ("TMP", at(&["tmp"]))];
     if cfg!(target_os = "macos") {
         moved.push(("TMPDIR", at(&["tmp"])));
+        // Java and clang ask macOS for the account's own temp and cache folders, which a check
+        // may not write, rather than read TMPDIR: they are told the workspace's.
+        wanted.push((
+            "JAVA_TOOL_OPTIONS",
+            format!("-Djava.io.tmpdir={} -XX:-UsePerfData", at(&["tmp"])),
+        ));
+        wanted.push(("CLANG_MODULE_CACHE_PATH", at(&["cache", "clang"])));
         // With HOME moved, rustup's and pyenv's shims would look for their toolchains in the
         // checks' own home: they are told where the person's are.
         if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
@@ -557,6 +564,11 @@ pub fn seatbelt_profile(toolchains: usize) -> String {
 (deny appleevent-send)
 (deny signal)
 (allow signal (target same-sandbox))
+; Nothing started outside the sandbox on its behalf: no app opened through LaunchServices
+; (`open`), no job handed to launchd (`launchctl`).
+(deny lsopen)
+(deny job-creation)
+(deny mach-lookup (global-name "com.apple.coreservices.launchservicesd"))
 "#
     )
 }
@@ -1947,7 +1959,66 @@ mod shared_tests {
             ws.caches.join("go").join("cache")
         );
         if cfg!(target_os = "macos") {
-            assert!(under("TMPDIR"));
+            assert!(under("TMPDIR") && under("CLANG_MODULE_CACHE_PATH"));
+            assert!(env["JAVA_TOOL_OPTIONS"].contains(&*ws.caches.to_string_lossy()));
         }
+    }
+
+    /// The profile as macOS runs it (sandbox-exec): a check writes and reads in its scratch copy,
+    /// reads nothing else in the home and writes nowhere else. The scratch copy is under the home,
+    /// as Nook's are.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_check_under_seatbelt_stays_in_its_workspace() {
+        use std::collections::HashMap;
+        let home = PathBuf::from(std::env::var("HOME").unwrap());
+        let base = home
+            .join("Library")
+            .join("Caches")
+            .join(format!("nook-sandbox-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let ws = base.join("scratch");
+        std::fs::create_dir_all(&ws).unwrap();
+        let secret = base.join("secret.txt");
+        std::fs::write(&secret, "private").unwrap();
+        let outside = base.join("written.txt");
+        let run = |script: &str| {
+            let (program, args, env) = seatbelt(
+                &["/bin/sh".into(), "-c".into(), script.into()],
+                &ws,
+                &HashMap::new(),
+            )
+            .unwrap();
+            let out = std::process::Command::new(program)
+                .args(args)
+                .current_dir(&ws)
+                .env_clear()
+                .envs(env)
+                .output()
+                .unwrap();
+            (
+                out.status.success(),
+                format!(
+                    "{}{}",
+                    String::from_utf8_lossy(&out.stdout),
+                    String::from_utf8_lossy(&out.stderr)
+                ),
+            )
+        };
+        let (ok, said) = run("echo in > here.txt && cat here.txt && ls /usr/bin/true");
+        assert!(
+            ok && said.contains("in"),
+            "the scratch copy is its own: {said}"
+        );
+        let (ok, said) = run(&format!("cat '{}'", secret.display()));
+        assert!(
+            !ok && !said.contains("private"),
+            "the home is not readable: {said}"
+        );
+        let (ok, _) = run(&format!("echo x > '{}'", outside.display()));
+        assert!(!ok && !outside.exists(), "nothing is written outside it");
+        let (ok, _) = run("open -a TextEdit || launchctl submit -l nook-test -- /usr/bin/true");
+        assert!(!ok, "nothing is started outside the sandbox");
+        let _ = std::fs::remove_dir_all(&base);
     }
 }

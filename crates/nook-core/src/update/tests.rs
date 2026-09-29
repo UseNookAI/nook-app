@@ -60,9 +60,18 @@ fn b64(text: &str) -> Vec<u8> {
         .unwrap()
 }
 
+/// Where a channel's manifest is for this system: the channel's own folder for Windows, its
+/// `macos-arm64` folder on a Mac.
+fn channel_dir(channel: &str) -> String {
+    match super::source::PLATFORM_DIR {
+        Some(platform) => format!("{channel}/{platform}"),
+        None => channel.to_string(),
+    }
+}
+
 /// Writes a signed manifest for a channel into the folder that stands in for the download host.
 fn publish(root: &Path, key: &SigningKey, channel: &str, json: &str) -> PathBuf {
-    let dir = root.join(channel);
+    let dir = root.join(channel_dir(channel));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("latest.json"), json).unwrap();
     std::fs::write(
@@ -131,8 +140,9 @@ async fn the_stable_channel_offers_a_higher_version_and_nothing_else() {
     assert_eq!(
         s.manifest_url("stable"),
         format!(
-            "{}/stable/latest.json",
-            to_url(&host.path().to_string_lossy()).trim_end_matches('/')
+            "{}/{}/latest.json",
+            to_url(&host.path().to_string_lossy()).trim_end_matches('/'),
+            channel_dir("stable")
         )
     );
 
@@ -1117,7 +1127,7 @@ async fn a_web_host_is_checked_and_downloaded_from() {
     assert!(!u.source().local());
     assert_eq!(
         u.source().manifest_url("stable"),
-        format!("{base}/stable/latest.json")
+        format!("{base}/{}/latest.json", channel_dir("stable"))
     );
     let installs = Installs::default();
     installs.attach(&u);
@@ -1153,7 +1163,10 @@ async fn a_web_host_is_checked_and_downloaded_from() {
         .status()
         .last_check_error
         .unwrap_or_default()
-        .starts_with("could not read http://127.0.0.1:9/stable/latest.json: "));
+        .starts_with(&format!(
+            "could not read http://127.0.0.1:9/{}/latest.json: ",
+            channel_dir("stable")
+        )));
 }
 
 #[tokio::test]

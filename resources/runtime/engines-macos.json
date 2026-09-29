@@ -24,48 +24,48 @@
     },
     "whisper": {
       "version": "b4938",
-      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-1 (whisper.cpp b4938 built with Metal by .github/workflows/macos-engines.yml)",
+      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-2 (whisper.cpp b4938 built with Metal by .github/workflows/macos-engines.yml)",
       "backends": {
         "metal": [
           {
             "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-1/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz"
           }
         ],
         "cpu": [
           {
             "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-1/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz"
           }
         ]
       }
     },
     "sd": {
       "version": "master-841-6b3edaa",
-      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-1 (stable-diffusion.cpp 6b3edaa built with Metal for macOS 13.3 by .github/workflows/macos-engines.yml; upstream's Mac build needs macOS 26)",
+      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-2 (stable-diffusion.cpp 6b3edaa built with Metal for macOS 13.3 by .github/workflows/macos-engines.yml; upstream's Mac build needs macOS 26)",
       "backends": {
         "metal": [
           {
             "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-1/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
           }
         ],
         "cpu": [
           {
             "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-1/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
           }
         ]
       }
     },
     "ffmpeg": {
       "version": "n8.1.3",
-      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-1 (FFmpeg n8.1.3, LGPL, static, built by .github/workflows/macos-engines.yml)",
+      "source": "https://github.com/UseNookAI/nook-app/releases/tag/engines-macos-2 (FFmpeg n8.1.3, LGPL, static, built by .github/workflows/macos-engines.yml)",
       "backends": {
         "any": [
           {
             "name": "ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-1/ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz"
           }
         ]
       }

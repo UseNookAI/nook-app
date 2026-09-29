@@ -46,7 +46,7 @@ pub fn run() {
         handover::remove_leftovers(handover::old_program_dirs(), handover::handed_over());
     }
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             // A second start brings the running window forward instead.
             if let Some(w) = app.get_webview_window("main") {
@@ -56,7 +56,16 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_opener::init());
+    // A Mac's menu bar, whose Quit (Cmd+Q) asks first as closing does: the standard one ends the
+    // app at once. Windows has no menu bar.
+    #[cfg(target_os = "macos")]
+    let builder = builder.menu(mac_menu).on_menu_event(|app, event| {
+        if event.id() == QUIT_ITEM {
+            ask_to_quit(app);
+        }
+    });
+    builder
         .manage(AppState(nook.clone()))
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -277,12 +286,14 @@ pub fn run() {
         .run(|app, event| match event {
             // Quit from the menu or the Dock (Cmd+Q; code None) goes through the window's own
             // close, which asks first while something is running and then quits with a code.
+            // An exit nobody asked for with a code, while the window is still there: the window's
+            // own close asks first, then quits with one.
             tauri::RunEvent::ExitRequested {
                 code: None, api, ..
             } if cfg!(target_os = "macos") => {
-                if let Some(main) = app.get_webview_window("main") {
+                if app.get_webview_window("main").is_some() {
                     api.prevent_exit();
-                    let _ = main.emit("nook:quit-requested", ());
+                    ask_to_quit(app);
                 }
             }
             // The Dock's icon clicked with the window put away: it comes back.
@@ -303,4 +314,73 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+/// The Mac menu's Quit.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const QUIT_ITEM: &str = "nook-quit";
+
+/// Hands a quit to the window, which asks first while something runs and then quits; with no
+/// window to ask, quits.
+fn ask_to_quit<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    match app.get_webview_window("main") {
+        Some(main) => {
+            let _ = main.emit("nook:quit-requested", ());
+        }
+        None => app.exit(0),
+    }
+}
+
+/// The Mac's menu bar: the app's menu (About, Services, Hide, Quit), Edit (so copy and paste
+/// work in the page's fields) and Window. Quit is Nook's own item, not the standard one.
+#[cfg(target_os = "macos")]
+fn mac_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu};
+    let info = app.package_info();
+    let about = AboutMetadata {
+        name: Some(info.name.clone()),
+        version: Some(info.version.to_string()),
+        ..Default::default()
+    };
+    let nook = Submenu::with_items(
+        app,
+        info.name.clone(),
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, Some(about))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, QUIT_ITEM, "Quit Nook", true, Some("CmdOrCtrl+Q"))?,
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ],
+    )?;
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+    Menu::with_items(app, &[&nook, &edit, &window])
 }

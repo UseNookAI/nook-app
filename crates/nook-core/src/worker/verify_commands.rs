@@ -468,6 +468,18 @@ fn program(name: &str) -> String {
             }
         }
     }
+    // A Mac (from 12.3) and Homebrew have only python3: `python` is that one unless a `python`
+    // is on PATH (a pyenv, conda or venv one).
+    #[cfg(unix)]
+    if name == "python" {
+        if let Some(path) = std::env::var_os("PATH") {
+            let dirs: Vec<std::path::PathBuf> = std::env::split_paths(&path).collect();
+            let has = |n: &str| dirs.iter().any(|d| d.join(n).is_file());
+            if !has("python") && has("python3") {
+                return "python3".to_string();
+            }
+        }
+    }
     name.to_string()
 }
 

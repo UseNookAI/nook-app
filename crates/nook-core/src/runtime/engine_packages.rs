@@ -379,10 +379,7 @@ pub fn extract(zip: &Path, into: &Path) -> Result<()> {
             std::fs::create_dir_all(&out)
                 .with_context(|| format!("Could not create {}", out.display()))?;
         } else {
-            if let Some(parent) = out.parent() {
-                std::fs::create_dir_all(parent)
-                    .with_context(|| format!("Could not create {}", parent.display()))?;
-            }
+            make_parent(into, &out)?;
             let mode = entry.unix_mode();
             if mode.is_some_and(|m| m & 0o170000 == 0o120000) {
                 let mut target = String::new();
@@ -398,6 +395,24 @@ pub fn extract(zip: &Path, into: &Path) -> Result<()> {
             drop(f);
             set_mode(&out, mode)?;
         }
+    }
+    Ok(())
+}
+
+/// Creates `out`'s folder and makes sure it really is inside `into`: a link the archive made
+/// earlier (`a -> .`, then `a/b -> ..`) could otherwise lead a later entry out of it, however its
+/// name reads.
+fn make_parent(into: &Path, out: &Path) -> Result<()> {
+    let Some(parent) = out.parent() else {
+        return Ok(());
+    };
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("Could not create {}", parent.display()))?;
+    let real = |p: &Path| {
+        std::fs::canonicalize(p).with_context(|| format!("Could not read {}", p.display()))
+    };
+    if !real(parent)?.starts_with(real(into)?) {
+        bail!("Archive entry escapes target directory: {}", out.display());
     }
     Ok(())
 }
@@ -458,10 +473,7 @@ fn link_inside(into: &Path, out: &Path, target: &str) -> Result<()> {
             out.display()
         );
     }
-    if let Some(parent) = out.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("Could not create {}", parent.display()))?;
-    }
+    make_parent(into, out)?;
     let _ = std::fs::remove_file(out);
     #[cfg(unix)]
     std::os::unix::fs::symlink(target, out)
@@ -526,10 +538,7 @@ fn extract_tgz(archive: &Path, into: &Path) -> Result<()> {
             tar::EntryType::Directory => std::fs::create_dir_all(&out)
                 .with_context(|| format!("Could not create {}", out.display()))?,
             tar::EntryType::Regular => {
-                if let Some(parent) = out.parent() {
-                    std::fs::create_dir_all(parent)
-                        .with_context(|| format!("Could not create {}", parent.display()))?;
-                }
+                make_parent(into, &out)?;
                 let mode = entry.header().mode().ok();
                 let mut f = std::fs::File::create(&out)
                     .with_context(|| format!("Could not write {}", out.display()))?;
@@ -672,6 +681,10 @@ fn extract_dmg(dmg: &Path, into: &Path) -> Result<()> {
     std::fs::create_dir_all(into)
         .with_context(|| format!("Could not create {}", into.display()))?;
     let mount = into.with_extension("mount");
+    let _ = std::process::Command::new("/usr/bin/hdiutil")
+        .args(["detach", "-force"])
+        .arg(&mount)
+        .output();
     let _ = std::fs::remove_dir(&mount);
     std::fs::create_dir_all(&mount)
         .with_context(|| format!("Could not create {}", mount.display()))?;
@@ -857,6 +870,35 @@ mod tests {
         }
     }
 
+    /// Links that each stay inside by name but together lead out: `a -> .`, then `a/b -> ..`
+    /// (`a/..` reads as inside, but `a` is the folder itself), then a file under `a/b`.
+    #[cfg(unix)]
+    #[test]
+    fn chained_links_do_not_lead_a_file_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut tar = tar::Builder::new(Vec::new());
+        for (name, to) in [("a", "."), ("a/b", "..")] {
+            let mut link = tar::Header::new_gnu();
+            link.set_entry_type(tar::EntryType::Symlink);
+            link.set_size(0);
+            link.set_mode(0o755);
+            tar.append_link(&mut link, name, to).unwrap();
+        }
+        let mut file = tar::Header::new_gnu();
+        file.set_size(3);
+        file.set_mode(0o644);
+        file.set_cksum();
+        tar.append_data(&mut file, "a/b/x", &b"out"[..]).unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(&tar.into_inner().unwrap()).unwrap();
+        let archive = dir.path().join("chain.tar.gz");
+        std::fs::write(&archive, gz.finish().unwrap()).unwrap();
+        let out = dir.path().join("engine").join("out");
+        let err = extract(&archive, &out).unwrap_err();
+        assert!(err.to_string().contains("escapes"), "{err}");
+        assert!(!dir.path().join("engine").join("x").exists());
+    }
+
     #[test]
     fn a_tgz_unpacks_as_a_zip_does() {
         let dir = tempfile::tempdir().unwrap();
@@ -936,7 +978,9 @@ mod tests {
 
     #[tokio::test]
     async fn installs_verifies_and_keeps_sub_components() {
-        let llama = zip_bytes(&[("bin/", b""), ("bin/llama-server.exe", b"server")]);
+        // llama-server.exe on Windows, llama-server on a Mac
+        let server = format!("bin/{}", EngineComponent::Llama.executables()[0]);
+        let llama = zip_bytes(&[("bin/", b""), (&server, b"server")]);
         let whisper = zip_bytes(&[("whisper-server.exe", b"w")]);
         let sha = hex::encode(sha2::Sha256::digest(&llama));
         let (l, w) = (llama.clone(), whisper.clone());

@@ -55,23 +55,19 @@ fn shell_path() -> Option<String> {
         .stderr(Stdio::null())
         .spawn()
         .ok()?;
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => break,
-            Ok(None) if started.elapsed() < SHELL_WAIT => {
-                std::thread::sleep(Duration::from_millis(20));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return None;
-            }
-        }
-    }
-    let mut out = String::new();
-    child.stdout.take()?.read_to_string(&mut out).ok()?;
-    path_from(&out)
+    // Read on a thread of its own: something the shell's startup files leave running may hold
+    // its output open long after the shell is gone, and Nook does not wait for that.
+    let mut stdout = child.stdout.take()?;
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut out = String::new();
+        let _ = stdout.read_to_string(&mut out);
+        let _ = tx.send(out);
+    });
+    let out = rx.recv_timeout(SHELL_WAIT).ok();
+    let _ = child.kill();
+    let _ = child.wait();
+    path_from(&out?)
 }
 
 /// The PATH after the mark in what the shell printed (its startup files may print before it).

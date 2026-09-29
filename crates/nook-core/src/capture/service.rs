@@ -302,6 +302,7 @@ impl CaptureService {
     pub async fn preview(&self, source: &Source) -> Result<Vec<u8>> {
         let ffmpeg = self
             .ffmpeg_path()
+            .or_else(|| cfg!(target_os = "macos").then(PathBuf::new))
             .ok_or_else(|| anyhow!("FFmpeg is not installed yet."))?;
         let captured = Self::captured_size(source)?;
         let video = Video {
@@ -860,7 +861,9 @@ impl CaptureService {
                 .await;
         }
         // The picture's capture ends once FFmpeg has all it will take.
-        segment.feed.take();
+        if let Some(feed) = segment.feed.take() {
+            let _ = tokio::task::spawn_blocking(move || drop(feed)).await;
+        }
         let p = *segment.progress.lock();
         p
     }

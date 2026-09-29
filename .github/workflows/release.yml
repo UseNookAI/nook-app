@@ -168,7 +168,8 @@ jobs:
         with:
           name: Nook ${{ steps.v.outputs.version }}
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.v.outputs.version) }}
+          # The Mac's manifests (dist-macos/manifests) would take the Windows ones' names here:
+          # tools/publish-macos.ps1 puts them on the download host.
           files: |
             dist-macos/*.dmg
             dist-macos/*.app.tar.gz
-            dist-macos/manifests/**/*
