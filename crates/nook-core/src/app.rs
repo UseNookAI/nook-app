@@ -20,6 +20,7 @@ use parking_lot::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use crate::capture::CaptureService;
 use crate::code::CodeService;
 use crate::convert::ConvertService;
 use crate::flow::FlowService;
@@ -67,6 +68,8 @@ pub struct Nook {
     pub convert: Arc<ConvertService>,
     /// The finder: picks the Nooklet for a request typed in a sentence.
     pub nooklets: Arc<Finder>,
+    /// The screen recorder Nooklet.
+    pub capture: Arc<CaptureService>,
     /// The loopback gateway while it runs (started in [`Nook::start`] on
     /// `gateway_port::choose()`, writing `home.gateway_file()`).
     gateway: Mutex<Option<GatewayHandle>>,
@@ -131,6 +134,8 @@ impl Nook {
         updater.register_busy("ConvertService", convert.clone());
         let nooklets = Finder::new(runtime.clone(), home.clone());
         updater.register_busy("Finder", nooklets.clone());
+        let capture = CaptureService::new(runtime.clone(), settings.clone());
+        updater.register_busy("CaptureService", capture.clone());
         Ok(Arc::new(Nook {
             home,
             settings,
@@ -146,6 +151,7 @@ impl Nook {
             pdf_setup,
             convert,
             nooklets,
+            capture,
             gateway: Mutex::new(None),
             started: AtomicBool::new(false),
             stopping: CancellationToken::new(),
@@ -207,6 +213,8 @@ impl Nook {
             gateway.stop().await;
         }
         self.code.shutdown();
+        // A recording is kept: its file is finished before the engines stop.
+        self.capture.shutdown().await;
         self.video.shutdown().await;
         self.flows.shutdown().await;
         self.pdf_setup.shutdown();

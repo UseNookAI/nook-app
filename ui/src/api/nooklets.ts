@@ -10,14 +10,14 @@ import type { Install } from "./flows";
 import { call, on } from "./ipc";
 
 /** The Nooklets there are, by id. */
-export type NookletId = "translate" | "transcribe" | "summarize" | "read-aloud" | "pdf" | "convert";
+export type NookletId = "translate" | "transcribe" | "summarize" | "read-aloud" | "pdf" | "convert" | "screen";
 
 /**
  * What a request sets for a Nooklet: the language to translate into, the spoken language to write
  * down, the language to summarize in or to read, or the format to convert to.
  */
 export interface Preset {
-  key: "language" | "format";
+  key: "language" | "format" | "mode";
   value: string;
   /** "German", "PDF". */
   label: string;

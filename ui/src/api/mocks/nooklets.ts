@@ -50,6 +50,12 @@ const NOOKLETS: { id: NookletId; title: string; blurb: string; words: string[] }
     blurb: "Any document, sheet, slide or picture into another format",
     words: ["convert", "turn", "into", "make", "save", "export", "word", "excel", "powerpoint", "docx", "csv", "jpg", "png", "photos", "markdown", "dönüştür", "umwandeln", "convertir"],
   },
+  {
+    id: "screen",
+    title: "Record your screen",
+    blurb: "A screen, a window or an area, with your microphone and the computer's sound; or stream it live.",
+    words: ["screen", "screencast", "capture", "stream", "streaming", "live", "twitch", "youtube", "obs", "gameplay", "tutorial", "ekran", "bildschirm", "écran", "pantalla"],
+  },
 ];
 
 const LANGUAGES: [RegExp, string, string][] = [
@@ -76,6 +82,7 @@ const FORMATS: [RegExp, string, string][] = [
 
 /** The language or format named last, after "into"/"to" when there is one (catalog.rs preset). */
 function preset(id: NookletId, request: string): Preset | null {
+  if (id === "screen") return /\b(stream|streaming|live|twitch|youtube|kick|yayın)\b/i.test(request) ? { key: "mode", value: "stream", label: "stream live" } : null;
   const table = id === "convert" ? FORMATS : id === "pdf" ? null : LANGUAGES;
   if (!table) return null;
   const after = request.match(/\b(?:into|to|as|in|ins|en|zu)\b(.*)$/i)?.[1] ?? "";

@@ -24,6 +24,8 @@ pub mod topic {
     pub const PDF: &str = "pdf";
     /// The document converter: its jobs and its engines' download.
     pub const CONVERT: &str = "convert";
+    /// The screen recorder: its state, the sound's levels, FFmpeg's download.
+    pub const CAPTURE: &str = "capture";
     /// The Nooklets' finder: its download.
     pub const NOOKLETS: &str = "nooklets";
     /// Voice prompt: recording level and transcription.

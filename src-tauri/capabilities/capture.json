@@ -1,0 +1,15 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture",
+  "description": "The screen recorder's own windows: the area picker over each screen and the recording controls. They hear Nook's events, move and close themselves; nothing else.",
+  "windows": [
+    "pick-area-*",
+    "capture-bar"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-set-focus"
+  ]
+}

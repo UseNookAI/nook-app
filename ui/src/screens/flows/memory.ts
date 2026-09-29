@@ -4,7 +4,7 @@
  */
 
 /** The Nooklets, in the rail's order. */
-export type FlowKind = "TRANSLATE" | "TRANSCRIBE" | "SUMMARIZE" | "READ_ALOUD" | "PDF" | "CONVERT";
+export type FlowKind = "TRANSLATE" | "TRANSCRIBE" | "SUMMARIZE" | "READ_ALOUD" | "PDF" | "CONVERT" | "SCREEN";
 
 /** The open Nooklet, or the finder ("HOME"). */
 export const FlowMemory = (() => {

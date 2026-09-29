@@ -37,6 +37,7 @@ export const NOOKLET_ICONS: Record<NookletId, string> = {
   "read-aloud": "read-aloud",
   pdf: "file-edit",
   convert: "file-convert",
+  screen: "screen-record",
 };
 const ALL: { id: NookletId; title: string }[] = [
   { id: "translate", title: "Translate speech" },
@@ -45,6 +46,7 @@ const ALL: { id: NookletId; title: string }[] = [
   { id: "read-aloud", title: "Read it aloud" },
   { id: "pdf", title: "Edit a PDF" },
   { id: "convert", title: "Convert documents" },
+  { id: "screen", title: "Record your screen" },
 ];
 
 const EXAMPLES = [
@@ -57,6 +59,8 @@ const EXAMPLES = [
   "Put these photos into one PDF",
   "Notes from yesterday's call",
   "Dub this video in German",
+  "Record my screen with my voice",
+  "Stream my game to Twitch",
 ];
 
 /** The request and its answer, kept while another page is open. */

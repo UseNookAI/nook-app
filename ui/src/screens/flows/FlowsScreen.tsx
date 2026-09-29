@@ -11,6 +11,7 @@ import { ConvertFlow } from "./ConvertFlow";
 import { NookletsHome } from "./NookletsHome";
 import { PdfFlow } from "./PdfFlow";
 import { ReadAloudFlow } from "./ReadAloudFlow";
+import { ScreenFlow } from "./ScreenFlow";
 import { SummarizeFlow } from "./SummarizeFlow";
 import { TranscribeFlow } from "./TranscribeFlow";
 import { TranslateFlow } from "./TranslateFlow";
@@ -62,6 +63,13 @@ const FLOWS: { kind: FlowKind; id: NookletId; title: string; icon: string; blurb
     title: "Convert documents",
     icon: "file-convert",
     blurb: "Any document, sheet or picture into another format",
+  },
+  {
+    kind: "SCREEN",
+    id: "screen",
+    title: "Record your screen",
+    icon: "screen-record",
+    blurb: "A screen, a window or an area, with sound; or stream it live",
   },
 ];
 
@@ -148,6 +156,9 @@ export function FlowsScreen({ say, onOpenModels }: { say: (message: string) => v
           {flow === "SUMMARIZE" && <SummarizeFlow say={say} onOpenModels={onOpenModels} preset={languageFor("SUMMARIZE")} />}
           {flow === "READ_ALOUD" && <ReadAloudFlow say={say} preset={languageFor("READ_ALOUD")} />}
           {flow === "PDF" && <PdfFlow say={say} onOpenChange={setNarrow} />}
+          {flow === "SCREEN" && (
+            <ScreenFlow say={say} preset={presetFor("SCREEN") ? { mode: presetFor("SCREEN")!.preset.value, nonce: presetFor("SCREEN")!.nonce } : null} />
+          )}
           {flow === "CONVERT" && (
             <ConvertFlow
               say={say}

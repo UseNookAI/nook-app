@@ -302,6 +302,53 @@ pub const NOOKLETS: &[Nooklet] = &[
             "voix",
         ],
     },
+    Nooklet {
+        id: "screen",
+        title: "Record your screen",
+        blurb: "A screen, a window or an area, with your microphone and the computer's sound; or stream it live.",
+        examples: &[
+            "record my screen",
+            "screen recording",
+            "record my screen with my voice",
+            "record a window",
+            "record part of my screen",
+            "capture my screen as a video",
+            "make a screencast",
+            "record a tutorial of my screen",
+            "record my gameplay",
+            "record a video call with its sound",
+            "stream my screen live",
+            "stream my game to Twitch",
+            "go live on YouTube",
+            "livestream with my microphone",
+            "like OBS",
+            "ekranımı kaydet",
+            "ekran kaydı al",
+            "yayın aç",
+            "Bildschirm aufnehmen",
+            "enregistrer mon écran",
+            "grabar mi pantalla",
+        ],
+        hints: &[
+            "screen",
+            "screencast",
+            "screenshot",
+            "capture",
+            "stream",
+            "streaming",
+            "livestream",
+            "live",
+            "twitch",
+            "youtube",
+            "obs",
+            "gameplay",
+            "ekran",
+            "yayın",
+            "bildschirm",
+            "écran",
+            "pantalla",
+        ],
+    },
 ];
 
 pub fn by_id(id: &str) -> Option<&'static Nooklet> {
@@ -324,7 +371,8 @@ pub fn words(text: &str) -> Vec<String> {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Preset {
-    /// "language" (the translator's target) or "format" (the converter's).
+    /// "language" (the translator's target), "format" (the converter's) or "mode" (the screen
+    /// recorder's: "stream").
     pub key: String,
     pub value: String,
     pub label: String,
@@ -405,9 +453,36 @@ pub fn preset(id: &str, request: &str) -> Option<Preset> {
                 label: format!("to {}", f.name),
             })
         }
+        // Streaming asked for ("stream to Twitch", "go live"): the recorder opens on it.
+        "screen" => ws
+            .iter()
+            .any(|w| STREAM_WORDS.contains(&w.as_str()))
+            .then(|| Preset {
+                key: "mode".into(),
+                value: "stream".into(),
+                label: "stream live".into(),
+            }),
         _ => None,
     }
 }
+
+/// Words that ask the screen recorder to stream.
+const STREAM_WORDS: &[&str] = &[
+    "stream",
+    "streaming",
+    "livestream",
+    "live",
+    "twitch",
+    "youtube",
+    "kick",
+    "rtmp",
+    "yayın",
+    "yayin",
+    "canlı",
+    "streamen",
+    "direct",
+    "directo",
+];
 
 /// Languages named in their own tongue or in Turkish ("türkçe", "deutsch", "ingilizce").
 fn native(w: &str) -> Option<&'static str> {
@@ -546,5 +621,13 @@ mod tests {
         assert_eq!(best("give me a summary of this report").0, "summarize");
         assert_eq!(best("read this article aloud").0, "read-aloud");
         assert!(best("book a flight").1 < 0.3, "no match");
+    }
+
+    #[test]
+    fn the_recorder_opens_on_streaming_when_asked() {
+        let p = preset("screen", "I want to stream Dota to Twitch").unwrap();
+        assert_eq!((p.key.as_str(), p.value.as_str()), ("mode", "stream"));
+        assert!(preset("screen", "canlı yayın aç").is_some());
+        assert!(preset("screen", "record my screen with my voice").is_none());
     }
 }

@@ -103,6 +103,18 @@ and there is no JVM.
   voice, VoxCPM2 for the languages only it speaks), the language told from the text (whatlang),
   Markdown's marks and code left out, sentences joined into lines of about 240 characters, as one
   track (M4A with FFmpeg in, else WAV) that plays with its text lit line by line.
+- *Record your screen* records or streams a whole screen, one window (by Windows' own capture, so
+  it records even behind other windows) or an area dragged out over the screen, with a
+  microphone and the computer's own sound (Windows' loopback), each chosen by device and with
+  its meter; a picture shows what it records before it starts. It encodes H.264 on the
+  graphics card when it can (NVIDIA, AMD or Intel, the frames staying on NVIDIA's and AMD's
+  cards), else with Windows' encoder or OpenH264, at 30 or 60 frames a second, its own size or
+  scaled to 1080p or 720p. A recording can pause (each run a Matroska part, safe if anything
+  stops) and becomes one MP4 in Videos › Nook or a chosen folder. A stream goes to Twitch,
+  YouTube, Facebook, Kick or any RTMP, RTMPS or SRT address, and can be recorded at once; its key
+  can be kept, encrypted for the Windows account (DPAPI). While it runs, small controls with the
+  time, pause and stop sit on the recorded screen, kept out of the recording, and Nook's window
+  can step aside. FFmpeg does the work (81 MB, downloaded the first time).
 - **Settings**: *General* (theme, updates, erase everything), *Models* (the curated *Library*,
   *Browse* for any GGUF on Hugging Face sized against your GPU, *Workers*: which model writes the
   code and which transcribes the voice prompt, and the worker's web access), *Runtime* (engines,

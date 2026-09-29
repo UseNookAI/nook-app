@@ -1,0 +1,89 @@
+/* The screen recorder Nooklet (ScreenFlow.tsx). Colours, spacing and type come from theme.css. */
+
+.sr-top { display: flex; align-items: center; }
+.sr-section { display: flex; flex-direction: column; gap: var(--space-medium); }
+.sr-kinds { align-self: flex-start; }
+.sr-small .nk-kind-pill { padding-top: var(--space-tiny); padding-bottom: var(--space-tiny); font-size: 13px; }
+
+/* Screens: one card each, shaped like the screen. */
+.sr-screens { display: flex; flex-wrap: wrap; gap: var(--space-medium); }
+.sr-screen {
+  display: flex; flex-direction: column; align-items: flex-start; gap: var(--space-micro); min-width: 150px;
+  padding: var(--space-medium); border: var(--border-width) solid var(--border); border-radius: var(--radius-medium);
+  background: var(--background); color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.sr-screen:hover { background: var(--hover); }
+.sr-screen--selected, .sr-screen--selected:hover { border-color: var(--primary-variant); background: var(--selected); }
+.sr-screen__shape {
+  display: grid; place-items: center; width: 96px; margin-bottom: var(--space-tiny);
+  border: var(--border-width) solid var(--border-strong); border-radius: var(--radius-small);
+  background: var(--background-variant); color: var(--text-tertiary);
+}
+.sr-screen--selected .sr-screen__shape { border-color: var(--primary-variant); color: var(--primary-variant); }
+
+/* Windows: a list to pick from. */
+.sr-windows {
+  display: flex; flex-direction: column; gap: var(--space-micro); max-height: 260px; overflow-y: auto;
+  padding: var(--space-tiny); border: var(--border-width) solid var(--border); border-radius: var(--radius-medium);
+  background: var(--background);
+}
+.sr-window {
+  display: flex; align-items: center; gap: var(--space-medium); width: 100%; min-width: 0;
+  padding: var(--space-small) var(--space-medium); border: none; border-radius: var(--radius-small);
+  background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer;
+}
+.sr-window:hover { background: var(--hover); color: var(--text-primary); }
+.sr-window--selected, .sr-window--selected:hover { background: var(--selected); color: var(--text-primary); }
+.sr-window__text { display: flex; flex-direction: column; min-width: 0; }
+.sr-windows__more { display: flex; padding: var(--space-tiny) var(--space-small); }
+
+.sr-area {
+  display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-small);
+  padding: var(--space-medium); border: var(--border-width) dashed var(--border-strong); border-radius: var(--radius-medium);
+}
+
+/* What it records, as a picture. */
+.sr-preview {
+  position: relative; display: grid; place-items: center; overflow: hidden; min-height: 120px; max-height: 300px;
+  border-radius: var(--radius-medium); background: var(--background-variant);
+}
+.sr-preview img { display: block; max-width: 100%; max-height: 300px; object-fit: contain; }
+.sr-preview__empty { display: flex; flex-direction: column; align-items: center; gap: var(--space-small); padding: var(--space-large); text-align: center; }
+.sr-preview__again { position: absolute; top: var(--space-small); right: var(--space-small); background: var(--surface); }
+
+/* Sound: a switch, a device and a meter a row. */
+.sr-sound { display: flex; align-items: center; gap: var(--space-medium); min-width: 0; }
+.sr-sound__label { width: 124px; flex: none; }
+.sr-sound--off .sr-sound__label { color: var(--text-disabled); }
+.sr-meter {
+  position: relative; flex: 1; min-width: 60px; max-width: 180px; height: 6px; overflow: hidden;
+  border-radius: var(--radius-round); background: var(--hover);
+}
+.sr-meter__fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: inherit; background: var(--success);
+  transition: width 90ms linear;
+}
+.sr-sound--off .sr-meter__fill { width: 0 !important; }
+
+.sr-settings { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-medium) var(--space-xl); }
+.sr-setting { display: flex; flex-direction: column; gap: var(--space-tiny); }
+.sr-setting--toggle { flex-direction: row; align-items: center; gap: var(--space-small); }
+.sr-field { display: flex; flex-direction: column; gap: var(--space-tiny); }
+.sr-key { display: flex; align-items: center; gap: var(--space-small); }
+.sr-key .nk-textfield { flex: 1; }
+.sr-kbps { width: 110px; }
+.sr-folder { display: flex; align-items: center; gap: var(--space-small); min-width: 0; }
+
+/* While it records. */
+.sr-live { display: flex; flex-direction: column; gap: var(--space-medium); padding: var(--space-large); box-shadow: var(--shadow); }
+.sr-live__head { display: flex; align-items: center; gap: var(--space-medium); }
+.sr-live__clock { font-variant-numeric: tabular-nums; }
+.sr-live__facts { display: flex; flex-wrap: wrap; gap: var(--space-tiny) var(--space-large); }
+.sr-live__actions { display: flex; justify-content: flex-end; align-items: center; gap: var(--space-medium); }
+.sr-dot { flex: none; width: 12px; height: 12px; border-radius: 50%; background: #e5484d; animation: sr-pulse 1.4s ease-in-out infinite; }
+.sr-dot--still { animation: none; background: var(--text-disabled); }
+@keyframes sr-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .sr-dot { animation: none; } }
+
+.sr-note { display: flex; align-items: flex-start; gap: var(--space-small); padding: var(--space-medium) var(--space-large); }
+.sr-saved__actions { display: flex; flex-wrap: wrap; gap: var(--space-small); }

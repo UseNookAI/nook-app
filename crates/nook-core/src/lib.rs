@@ -24,6 +24,7 @@ pub mod process;
 pub mod resources;
 pub mod settings;
 
+pub mod capture;
 pub mod code;
 pub mod convert;
 pub mod flow;
