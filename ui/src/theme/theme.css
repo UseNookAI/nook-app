@@ -97,6 +97,8 @@
   --height-button: 36px;
   --height-input-min: 40px;
   --height-topbar: 48px;
+  /* Room for a Mac's traffic lights at the title strip's left. */
+  --traffic-lights: 88px;
   --height-footer: 36px;
   --height-list-item: 36px;
   --sidebar-width: 264px;

@@ -38,7 +38,10 @@ const CONNECT_TIME: Duration = Duration::from_secs(10);
 pub const SEARCH_GAP: Duration = Duration::from_secs(2);
 pub const PAUSE: Duration = Duration::from_secs(10 * 60);
 /// Browser-shaped so sites serve their normal page, and saying who is asking.
+#[cfg(not(target_os = "macos"))]
 pub const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Nook/0.3";
+#[cfg(target_os = "macos")]
+pub const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Nook/0.3";
 const ACCEPT_TYPES: &str =
     "text/html,application/xhtml+xml,text/plain;q=0.9,application/json;q=0.8,application/pdf;q=0.8,*/*;q=0.5";
 

@@ -1,0 +1,121 @@
+# The Mac app, on every push to main or a macOS branch and every pull request: the Rust and UI
+# checks on Apple silicon, then Nook.app as a disk image and as the tarball the updater installs,
+# as artifacts (nothing is published; release.yml does that for a tag).
+#
+# Signing: without the secrets below the app is signed ad hoc (tauri.macos.conf.json), which
+# runs on the Mac that built it and, once allowed in System Settings › Privacy & Security, on any
+# other. With a Developer ID it is signed and notarized, and opens anywhere without a warning:
+#   APPLE_CERTIFICATE (the .p12, base64), APPLE_CERTIFICATE_PASSWORD, APPLE_SIGNING_IDENTITY
+#   ("Developer ID Application: …"), and for notarization APPLE_ID, APPLE_PASSWORD (an app
+#   password) and APPLE_TEAM_ID.
+#
+# One command a step: a step's shell reports only its last command's exit code.
+name: macOS
+
+on:
+  push:
+    branches: [main, "feature/macos*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  MACOSX_DEPLOYMENT_TARGET: "13.3"
+
+jobs:
+  check:
+    name: Test and lint (Apple silicon)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
+
+      - name: UI typecheck
+        working-directory: ui
+        run: npm run typecheck
+
+      - name: UI tests
+        working-directory: ui
+        run: npm test
+
+      - name: UI build
+        working-directory: ui
+        run: npm run build
+
+      - name: Rust format
+        run: cargo fmt --all -- --check
+
+      - name: Rust lint
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Rust tests
+        run: cargo test --workspace
+
+  bundle:
+    name: Nook.app
+    needs: [check]
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
+
+      - name: Build the app and its disk image
+        env:
+          NOOK_COMMIT: ${{ github.sha }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARIZE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          NOTARIZE_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./tools/package-macos.sh
+
+      - name: What was built
+        run: ls -la dist-macos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nook-macos-${{ github.sha }}
+          path: dist-macos/*
+          if-no-files-found: error

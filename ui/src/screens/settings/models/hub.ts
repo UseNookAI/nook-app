@@ -4,6 +4,7 @@
  * words HubBrowserView.kt shows for them.
  */
 import type { Fit, Repo, Variant } from "../../../api/models";
+import { gpuMemory } from "../../../shell/platform";
 
 /** Searches offered under the field, so a first look is one click. */
 export const QUICK_SEARCHES = ["Qwen3", "Llama 3", "Gemma 3", "Mistral", "DeepSeek", "Phi-4", "GLM", "embedding"];
@@ -68,7 +69,7 @@ export function sizingNote(gpuTotalBytes: number): string {
   return (
     "Any GGUF on Hugging Face runs on Nook." +
     (gpuTotalBytes > 0
-      ? ` Sized against ${(gpuTotalBytes / GIB).toFixed(0)} GB of VRAM: Fits runs fully on the GPU, Tight keeps most layers on it, Too big runs mostly on the CPU.`
+      ? ` Sized against ${(gpuTotalBytes / GIB).toFixed(0)} GB of ${gpuMemory}: Fits runs fully on the GPU, Tight keeps most layers on it, Too big runs mostly on the CPU.`
       : "")
   );
 }

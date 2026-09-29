@@ -116,7 +116,7 @@ impl Nook {
                     packages.executable(
                         EngineComponent::Pdfium,
                         Backend::Cpu,
-                        &["bin/pdfium.dll", "pdfium.dll"],
+                        EngineComponent::Pdfium.executables(),
                     )
                 })
         }));

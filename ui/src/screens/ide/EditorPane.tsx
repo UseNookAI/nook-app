@@ -9,6 +9,7 @@ import { Icon } from "../../components/Icon";
 import { markAll, markedCount, search, type FindQuery } from "./EditorHost";
 import { HairLine } from "./IdeParts";
 import type { EditorTab, IdeWorkspace } from "./IdeWorkspace";
+import { modKey } from "../../shell/platform";
 
 export function EditorPane({ ws, onClose }: { ws: IdeWorkspace; onClose: (tab: EditorTab) => void }) {
   const area = useRef<HTMLDivElement>(null);
@@ -43,7 +44,8 @@ function EmptyEditor() {
     <div className="ide-empty-editor">
       <div className="subtitle2 ide-empty-editor__title">Open a file from the explorer.</div>
       <div className="caption ide-empty-editor__hint">
-        Ctrl+S saves it, Ctrl+F finds in it, Ctrl+Z takes an edit back. Ask Nook for a change in the panel on the right.
+        {modKey}+S saves it, {modKey}+F finds in it, {modKey}+Z takes an edit back. Ask Nook for a change in the panel on
+        the right.
       </div>
     </div>
   );

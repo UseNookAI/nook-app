@@ -95,7 +95,7 @@ pub async fn convert(
                 tools::pandoc(&exe, &current, from, to, &target, work, cancel).await?;
             }
             Step::Print => {
-                let edge = need(&kit.edge, "Microsoft Edge")?;
+                let edge = need(&kit.edge, super::system::PRINTER)?;
                 tools::print(&edge, &current, &target, &kit.edge_profile, cancel).await?;
             }
             Step::Office {
@@ -155,7 +155,10 @@ pub async fn convert(
                 stop_if(cancel)?;
                 let text = pdftext::write(&pages, *plain);
                 if text.trim().is_empty() {
-                    bail!("This PDF has no text Nook can read: its pages are pictures Windows could not read either");
+                    bail!(
+                        "This PDF has no text Nook can read: its pages are pictures {} could not read either",
+                        crate::platform::SYSTEM_NAME
+                    );
                 }
                 std::fs::write(&target, text)
                     .with_context(|| format!("Could not write {}", target.display()))?;

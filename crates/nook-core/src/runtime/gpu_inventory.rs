@@ -9,6 +9,10 @@
 //! about a third of a second, so those readings are cached longer and refreshed off the calling
 //! task for the status bar; placement still asks for a fresh one. Before the Vulkan engine is
 //! installed there is no reading, as before, and the engine fits itself.
+//!
+//! On a Mac the GPU is Apple silicon's, run through Metal, and its memory is the machine's own:
+//! the reading comes from Metal itself ([`query_metal`]), one device, planned against the working
+//! set Metal recommends for a process or the memory the system has available, whichever is less.
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -70,6 +74,8 @@ pub enum Source {
     None,
     NvidiaSmi,
     Engine,
+    /// Apple silicon, read through Metal (macOS).
+    Metal,
 }
 
 /// One graphics device.
@@ -278,6 +284,22 @@ impl GpuInventory {
     }
 
     async fn refresh_locked(&self) -> Vec<GpuDevice> {
+        if cfg!(target_os = "macos") {
+            let reading = query_metal();
+            let devices = reading.devices.clone();
+            let mut state = self.state.lock();
+            state.last_seen = devices.clone();
+            state.source = if devices.is_empty() {
+                Source::None
+            } else {
+                Source::Metal
+            };
+            state.cached = reading;
+            state.next_refresh = Some(Instant::now() + NVIDIA_SMI_CACHE);
+            drop(state);
+            self.first_reading.send_replace(true);
+            return devices;
+        }
         let engine_only = std::env::var(INVENTORY_ENV)
             .map(|v| v.trim().eq_ignore_ascii_case("engine"))
             .unwrap_or(false);
@@ -363,8 +385,24 @@ impl GpuInventory {
         state.source == Source::NvidiaSmi && state.last_seen.iter().any(|d| d.vendor == "nvidia")
     }
 
+    /// The GPU backend when no NVIDIA card answers: Metal on a Mac (the CPU when Metal has no
+    /// device), Vulkan elsewhere.
+    pub fn other_gpu_backend(&self) -> Backend {
+        if cfg!(target_os = "macos") {
+            let state = self.state.lock();
+            if state.source == Source::Metal || state.last_seen.is_empty() {
+                // Before the first reading every Apple silicon Mac has Metal.
+                Backend::Metal
+            } else {
+                Backend::Cpu
+            }
+        } else {
+            Backend::Vulkan
+        }
+    }
+
     /// Chooses the backend: an explicit override in `NOOK_RS_BACKEND` wins, then CUDA when an
-    /// NVIDIA GPU answers, otherwise Vulkan.
+    /// NVIDIA GPU answers, otherwise Vulkan (Metal on a Mac).
     pub async fn select_backend(&self) -> Backend {
         if let Ok(value) = std::env::var(BACKEND_ENV) {
             if !value.trim().is_empty() {
@@ -380,7 +418,7 @@ impl GpuInventory {
         if self.has_nvidia() {
             Backend::Cuda
         } else {
-            Backend::Vulkan
+            self.other_gpu_backend()
         }
     }
 
@@ -467,6 +505,52 @@ impl GpuInventory {
             Err(_) => Snapshot::default(),
         }
     }
+}
+
+/// Memory a Mac keeps for the system and the apps beside Nook's engines, on top of the driver
+/// reserve: the machine's memory is the GPU's too, and a model that takes all of it pages.
+pub const MAC_SYSTEM_RESERVE_BYTES: u64 = 1536 << 20;
+
+/// Apple silicon's GPU through Metal: one device whose total is the working set Metal recommends
+/// for one process (about two thirds of the memory, three quarters on the larger machines), and
+/// whose free memory is that or what the system has available less [`MAC_SYSTEM_RESERVE_BYTES`],
+/// whichever is less. Each engine is a process of its own, so Metal's count of what this process
+/// has allocated says nothing about the models already loaded; the system's available memory
+/// does, since their weights are the machine's memory taken.
+#[cfg(target_os = "macos")]
+pub fn query_metal() -> Snapshot {
+    use objc2_metal::{MTLCreateSystemDefaultDevice, MTLDevice};
+
+    let Some(device) = MTLCreateSystemDefaultDevice() else {
+        return Snapshot::default();
+    };
+    let name = device.name().to_string();
+    let working_set = device.recommendedMaxWorkingSetSize();
+    let mut sys = sysinfo::System::new();
+    sys.refresh_memory();
+    let free = working_set.min(
+        sys.available_memory()
+            .saturating_sub(MAC_SYSTEM_RESERVE_BYTES),
+    );
+    Snapshot {
+        devices: vec![GpuDevice {
+            index: 0,
+            vendor: vendor_of(&name).to_string(),
+            name,
+            total_bytes: working_set,
+            free_bytes: free,
+            driver_version: None,
+            compute_capability: None,
+            // Unified memory is what the GPU is built on, not a weak card's shared memory.
+            integrated: false,
+        }],
+        metrics: Vec::new(),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn query_metal() -> Snapshot {
+    Snapshot::default()
 }
 
 /// Free memory across `devices`, each minus the driver reserve.

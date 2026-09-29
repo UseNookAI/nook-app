@@ -32,6 +32,7 @@ import {
 import { ModelCard, ModelSectionLabel } from "./ModelCard";
 import type { ModelsData } from "./useModelsData";
 import "./models.css";
+import { gpuMemory } from "../../../shell/platform";
 
 const GIB = 1024 * 1024 * 1024;
 
@@ -39,7 +40,7 @@ const GIB = 1024 * 1024 * 1024;
 export function gpuLine(st: RuntimeStatus): string {
   const gpu = st.devices[0];
   const gpuText = gpu
-    ? `${gpu.name} · ${(gpu.freeBytes / GIB).toFixed(1)} of ${(gpu.totalBytes / GIB).toFixed(0)} GB VRAM free`
+    ? `${gpu.name} · ${(gpu.freeBytes / GIB).toFixed(1)} of ${(gpu.totalBytes / GIB).toFixed(0)} GB ${gpuMemory} free`
     : "No GPU reading yet";
   const loaded = st.engines
     .filter((e) => e.state === "READY")

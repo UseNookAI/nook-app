@@ -24,6 +24,7 @@ import {
 } from "./runtimeFormat";
 import { useRuntimeStatus } from "./useRuntimeStatus";
 import "./runtime.css";
+import { isMac } from "../../../shell/platform";
 
 export function RuntimeSettingsView() {
   const [st, refresh] = useRuntimeStatus(2000);
@@ -62,8 +63,9 @@ export function RuntimeSettingsView() {
       <SettingsGroup title="GPU memory">
         {st.devices.length === 0 && (
           <Note>
-            No GPU reading yet. On an AMD or Intel card the memory is read through the Vulkan engine once it is installed;
-            until then models fit themselves to the memory available.
+            {isMac
+              ? "No GPU reading: Metal did not answer, so models run on the processor."
+              : "No GPU reading yet. On an AMD or Intel card the memory is read through the Vulkan engine once it is installed; until then models fit themselves to the memory available."}
           </Note>
         )}
         {st.devices.map((gpu, index) => {

@@ -182,8 +182,27 @@ impl SystemFonts {
         SystemFonts { by_key, names }
     }
 
-    /// The fonts Windows has installed, for everyone and for this user.
+    /// The fonts Windows has installed, for everyone and for this user. On a Mac: the fonts in
+    /// the system's, the computer's and the person's font folders, and those Microsoft Office
+    /// keeps inside its apps (Calibri, Cambria, Consolas...), each by its full name.
     pub fn installed() -> SystemFonts {
+        if cfg!(target_os = "macos") {
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let mut dirs = vec![
+                PathBuf::from("/System/Library/Fonts"),
+                PathBuf::from("/System/Library/Fonts/Supplemental"),
+                PathBuf::from("/Library/Fonts"),
+            ];
+            dirs.extend(home.iter().map(|h| h.join("Library").join("Fonts")));
+            for app in ["Word", "Excel", "PowerPoint", "Outlook"] {
+                dirs.push(
+                    PathBuf::from(format!("/Applications/Microsoft {app}.app"))
+                        .join("Contents/Resources/DFonts"),
+                );
+            }
+            let entries = dirs.iter().flat_map(|d| named_files(d)).collect::<Vec<_>>();
+            return SystemFonts::from_entries(entries, std::path::Path::new("/"));
+        }
         let windir = std::env::var_os("WINDIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(r"C:\Windows"));
@@ -230,6 +249,109 @@ impl SystemFonts {
 
 fn is_collection(p: &std::path::Path) -> bool {
     p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttc"))
+}
+
+/// `(full name, whole path)` of each TrueType or OpenType font directly in `dir` (a collection by
+/// its first face, the one a font file is loaded as).
+pub fn named_files(dir: &std::path::Path) -> Vec<(String, String)> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| matches!(x.to_lowercase().as_str(), "ttf" | "ttc" | "otf"))
+        })
+        .filter_map(|p| Some((full_name(&p)?, p.to_string_lossy().into_owned())))
+        .collect()
+}
+
+/// A font file's full name ("Arial Bold") from its `name` table, reading only the table
+/// directory and that table: the English Windows name, else the Macintosh one, else Unicode's.
+pub fn full_name(path: &std::path::Path) -> Option<String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut read_at = |at: u64, len: usize| -> Option<Vec<u8>> {
+        let mut buf = vec![0u8; len];
+        f.seek(SeekFrom::Start(at)).ok()?;
+        f.read_exact(&mut buf).ok()?;
+        Some(buf)
+    };
+    let u16_at = |b: &[u8], i: usize| -> Option<u16> {
+        Some(u16::from_be_bytes([*b.get(i)?, *b.get(i + 1)?]))
+    };
+    let u32_at = |b: &[u8], i: usize| -> Option<u32> {
+        Some(u32::from_be_bytes(b.get(i..i + 4)?.try_into().ok()?))
+    };
+    // A collection ("ttcf") names its first face's table directory at byte 12.
+    let first = read_at(0, 16)?;
+    let (base, head) = if &first[0..4] == b"ttcf" {
+        let base = u64::from(u32_at(&first, 12)?);
+        (base, read_at(base, 12)?)
+    } else {
+        (0, first)
+    };
+    let tables = usize::from(u16_at(&head, 4)?);
+    if tables == 0 || tables > 200 {
+        return None;
+    }
+    let dir = read_at(base + 12, tables * 16)?;
+    let record = (0..tables).find(|i| &dir[i * 16..i * 16 + 4] == b"name")?;
+    let offset = u64::from(u32_at(&dir, record * 16 + 8)?);
+    let length = u32_at(&dir, record * 16 + 12)? as usize;
+    if length > 1 << 20 {
+        return None;
+    }
+    let name = read_at(offset, length)?;
+    let count = usize::from(u16_at(&name, 2)?);
+    let strings = usize::from(u16_at(&name, 4)?);
+    // (rank, text): Windows English, Windows any, Macintosh English, Unicode.
+    let mut best: Option<(u8, String)> = None;
+    for i in 0..count {
+        let r = 6 + i * 12;
+        let (Some(platform), Some(encoding), Some(language), Some(id), Some(len), Some(at)) = (
+            u16_at(&name, r),
+            u16_at(&name, r + 2),
+            u16_at(&name, r + 4),
+            u16_at(&name, r + 6),
+            u16_at(&name, r + 8),
+            u16_at(&name, r + 10),
+        ) else {
+            break;
+        };
+        if id != 4 {
+            continue;
+        }
+        let Some(bytes) =
+            name.get(strings + usize::from(at)..strings + usize::from(at) + usize::from(len))
+        else {
+            continue;
+        };
+        let utf16 = || {
+            let units: Vec<u16> = bytes
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|c| u16::from_be_bytes(*c))
+                .collect();
+            String::from_utf16_lossy(&units)
+        };
+        let (rank, text) = match (platform, encoding, language) {
+            (3, 1 | 10, 0x409) => (0, utf16()),
+            (3, 1 | 10, _) => (1, utf16()),
+            (1, 0, 0) => (2, bytes.iter().map(|&b| b as char).collect()),
+            (0, _, _) => (3, utf16()),
+            _ => continue,
+        };
+        let text = text.trim().to_string();
+        if !text.is_empty() && best.as_ref().is_none_or(|(r, _)| rank < *r) {
+            best = Some((rank, text));
+        }
+    }
+    best.map(|(_, t)| t)
 }
 
 #[cfg(windows)]
@@ -427,5 +549,54 @@ mod tests {
         assert!(!fonts
             .candidates(&traits("ArialMT", "Arial", false, false))
             .is_empty());
+    }
+
+    /// The name table is read the same on any system; Windows' own fonts are there to read.
+    #[cfg(windows)]
+    #[test]
+    fn a_font_files_full_name_is_read_from_its_name_table() {
+        let fonts = std::path::PathBuf::from(
+            std::env::var("WINDIR").unwrap_or_else(|_| r"C:\Windows".into()),
+        )
+        .join("Fonts");
+        assert_eq!(
+            full_name(&fonts.join("arial.ttf")).as_deref(),
+            Some("Arial")
+        );
+        assert_eq!(
+            full_name(&fonts.join("timesbd.ttf")).as_deref(),
+            Some("Times New Roman Bold")
+        );
+        // a collection by its first face
+        assert_eq!(
+            full_name(&fonts.join("cambria.ttc")).as_deref(),
+            Some("Cambria")
+        );
+        assert_eq!(full_name(&fonts.join("no-such-font.ttf")), None);
+        let named = named_files(&fonts);
+        assert!(named
+            .iter()
+            .any(|(n, f)| n == "Arial Bold" && f.ends_with("arialbd.ttf")));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn this_mac_lists_its_fonts() {
+        let fonts = SystemFonts::installed();
+        assert!(fonts.len() > 20, "{} fonts", fonts.len());
+        // Arial, Times New Roman and Courier New come with macOS
+        assert!(!fonts
+            .candidates(&traits("ArialMT", "Arial", false, false))
+            .is_empty());
+        assert!(fonts.file("timesnewromanbold").is_some());
+    }
+
+    #[test]
+    fn what_is_not_a_font_has_no_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let junk = dir.path().join("junk.ttf");
+        std::fs::write(&junk, b"not a font at all, only some bytes").unwrap();
+        assert_eq!(full_name(&junk), None);
+        assert!(named_files(dir.path()).is_empty());
     }
 }

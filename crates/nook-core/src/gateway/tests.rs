@@ -9,10 +9,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::StatusCode;
+#[cfg(windows)]
 use futures::StreamExt;
 use serde_json::{json, Value};
 
 use super::*;
+#[cfg(windows)]
 use crate::runtime::engine_component::EngineComponent;
 use crate::runtime::manager::testing::*;
 use crate::video::studio::testing::{wait_until, FakeRuntime, Mode};

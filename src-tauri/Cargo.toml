@@ -15,7 +15,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 nook-core = { path = "../crates/nook-core" }
-tauri = { version = "2", features = ["protocol-asset"] }
+# macos-private-api: the screen recorder's picker and controls are see-through windows, which
+# macOS gives only through its private API (fine outside the Mac App Store); nothing on Windows.
+tauri = { version = "2", features = ["protocol-asset", "macos-private-api"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"

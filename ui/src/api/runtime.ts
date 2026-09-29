@@ -42,13 +42,14 @@ export const runtimeGpuLoad = () => call<number>("runtime_gpu_load");
 // topic "runtime" with the [RuntimeEvent] as payload; the pages re-read `runtime_status` on it.
 
 /** backend.rs `Backend`: which engine build runs the models. */
-export type Backend = "CUDA" | "VULKAN" | "CPU";
+export type Backend = "CUDA" | "VULKAN" | "CPU" | "METAL";
 
 /** `Backend.label()`. */
 export const BACKEND_LABELS: Record<Backend, string> = {
   CUDA: "NVIDIA CUDA 12",
   VULKAN: "Vulkan",
   CPU: "CPU",
+  METAL: "Apple Metal",
 };
 
 /** `EngineProcess.State`. */

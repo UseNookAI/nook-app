@@ -54,6 +54,7 @@ import { DownloadLine } from "./DownloadLine";
 import { bytesText } from "./format";
 import { ModePill } from "./NookletParts";
 import "./screen.css";
+import { isMac } from "../../shell/platform";
 
 type Mode = "record" | "stream";
 type Kind = "screen" | "window" | "area";
@@ -623,7 +624,9 @@ export function ScreenFlow({
                 <div className="sr-settings">
                   <div className="sr-setting sr-setting--toggle">
                     <Toggle checked={form.rememberKey} onChange={(rememberKey) => set({ rememberKey })} label="Remember the key" />
-                    <span className="body2">Remember the key on this computer (encrypted for your Windows account)</span>
+                    <span className="body2">
+                      Remember the key on this computer ({isMac ? "kept in your Mac's keychain" : "encrypted for your Windows account"})
+                    </span>
                   </div>
                   <div className="sr-setting sr-setting--toggle">
                     <Toggle checked={form.alsoRecord} onChange={(alsoRecord) => set({ alsoRecord })} label="Also save a recording" />
@@ -737,7 +740,7 @@ function SoundRow({
   level: number;
 }) {
   const options = [
-    { value: "", label: `Windows' default${devices.find((d) => d.default) ? ` (${devices.find((d) => d.default)!.name})` : ""}` },
+    { value: "", label: `${isMac ? "The Mac's" : "Windows'"} default${devices.find((d) => d.default) ? ` (${devices.find((d) => d.default)!.name})` : ""}` },
     ...devices.map((d) => ({ value: d.name, label: d.name })),
   ];
   const known = device == null || devices.length === 0 || devices.some((d) => d.name === device);

@@ -478,6 +478,10 @@ impl LlamaEmbedder {
             .arg(port.to_string())
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null());
+        // A Mac has one llama.cpp build, Metal's; the finder stays on the processor all the same.
+        if cfg!(target_os = "macos") {
+            cmd.args(["--device", "none", "-ngl", "0"]);
+        }
         let mut child = crate::process::spawn_managed(&mut cmd)
             .with_context(|| format!("Could not start the finder ({})", self.exe.display()))?;
         let client = reqwest::Client::builder()

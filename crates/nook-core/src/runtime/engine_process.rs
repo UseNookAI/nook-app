@@ -630,6 +630,7 @@ impl EngineProcess {
 
     /// Kills the process behind the engine's back, as a crash would.
     #[cfg(test)]
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) async fn crash_for_test(&self) {
         let pid = self.inner.lock().child.as_ref().and_then(|c| c.id());
         if let Some(pid) = pid {
@@ -1058,6 +1059,7 @@ pub(crate) mod tests {
 
     /// What a fake llama-server answers: `/health`, `/props` with the given context and slots,
     /// `/completion` with timings, and a chat completion. Checks the bearer key.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn fake_llama_router(api_key: Option<String>, n_ctx: i32, slots: i32) -> Router {
         let authorized = move |headers: &HeaderMap| match &api_key {
             None => true,
@@ -1104,6 +1106,7 @@ pub(crate) mod tests {
     }
 
     /// Serves [`fake_llama_router`] on `port` (the one an engine was given).
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) async fn fake_llama_server(
         port: u16,
         api_key: Option<String>,

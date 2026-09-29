@@ -60,10 +60,16 @@ fn written(out: &Path, what: &str) -> Result<()> {
     }
 }
 
-/// A file's `file:///` address, for a browser.
+/// A file's `file:///` address, for a browser: `file:///C:/…` on Windows, `file:///Users/…` for a
+/// Unix path, whose own leading slash is the third.
 pub fn file_url(path: &Path) -> String {
     let mut out = String::from("file:///");
-    for b in path.to_string_lossy().replace('\\', "/").bytes() {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let path = match path.strip_prefix('/') {
+        Some(rest) if !rest.starts_with('/') => rest.to_string(),
+        _ => path,
+    };
+    for b in path.bytes() {
         if b.is_ascii_alphanumeric() || b"-._~/:".contains(&b) {
             out.push(b as char);
         } else {
@@ -75,7 +81,7 @@ pub fn file_url(path: &Path) -> String {
 
 /// The style a page Pandoc writes is printed in: readable type, tables ruled, code set off.
 pub const PAGE_CSS: &str =
-    "html { font: 11pt/1.5 'Segoe UI', Calibri, Arial, sans-serif; color: #1a1a1a; }
+    "html { font: 11pt/1.5 'Segoe UI', -apple-system, 'Helvetica Neue', Calibri, Arial, sans-serif; color: #1a1a1a; }
 body { max-width: 46em; margin: 0 auto; padding: 16px; }
 h1, h2, h3, h4 { line-height: 1.25; margin: 1.2em 0 0.4em; }
 h1 { font-size: 1.8em; } h2 { font-size: 1.4em; } h3 { font-size: 1.15em; }
@@ -83,7 +89,7 @@ p { margin: 0 0 0.7em; } img { max-width: 100%; }
 table { border-collapse: collapse; margin: 0.8em 0; }
 th, td { border: 1px solid #c8c8c8; padding: 3px 8px; text-align: left; vertical-align: top; }
 th { background: #f0f0f0; }
-pre, code { font-family: Consolas, 'Cascadia Mono', monospace; font-size: 0.92em; }
+pre, code { font-family: Consolas, 'Cascadia Mono', Menlo, monospace; font-size: 0.92em; }
 pre { background: #f5f5f5; padding: 8px 10px; white-space: pre-wrap; }
 blockquote { margin: 0.8em 0; padding-left: 1em; border-left: 3px solid #d0d0d0; color: #444; }
 header#title-block-header { display: none; }
@@ -177,8 +183,8 @@ pub async fn print(
         .arg("--no-pdf-header-footer")
         .arg(format!("--print-to-pdf={}", pdf.display()))
         .arg(file_url(html));
-    run(&mut cmd, "Edge", cancel).await?;
-    written(pdf, "Edge")
+    run(&mut cmd, super::system::PRINTER_SHORT, cancel).await?;
+    written(pdf, super::system::PRINTER_SHORT)
 }
 
 /// The number Word, Excel or PowerPoint saves `to` as (-1: Excel's PDF export).
@@ -431,6 +437,10 @@ mod tests {
         assert_eq!(
             file_url(Path::new(r"C:\My Files\a#1.html")),
             "file:///C:/My%20Files/a%231.html"
+        );
+        assert_eq!(
+            file_url(Path::new("/Users/me/My Files/a.html")),
+            "file:///Users/me/My%20Files/a.html"
         );
         assert_eq!(office_format(App::Word, "pdf"), Some(17));
         assert_eq!(office_format(App::Excel, "pdf"), Some(-1));

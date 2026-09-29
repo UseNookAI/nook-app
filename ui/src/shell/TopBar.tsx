@@ -5,11 +5,15 @@
  * (`data-tauri-drag-region`; a double-click maximises); its passive parts let clicks through to it.
  *
  * `SetupHeader` is the transparent strip of the welcome and erase screens: window controls only.
+ *
+ * On a Mac the controls are macOS's traffic lights, over the strip's left end, so the strip starts
+ * after them (`nk-topbar--mac`) and still drags the window.
  */
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icon";
 import { FanMark } from "./FanMark";
+import { isMac } from "./platform";
 import { WindowControls } from "./WindowControls";
 import "./shell.css";
 
@@ -38,7 +42,7 @@ export function TopBar({
   nav,
 }: TopBarProps) {
   return (
-    <div className="nk-topbar" data-tauri-drag-region>
+    <div className={isMac ? "nk-topbar nk-topbar--mac" : "nk-topbar"} data-tauri-drag-region>
       {isSidebarVisible && (
         <>
           <BrandMark showWordmark={!isSidebarCollapsed} />

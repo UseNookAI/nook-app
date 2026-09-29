@@ -8,6 +8,10 @@
 //! delivered less (Windows sends nothing from an output device while nothing plays) is silent
 //! for the rest, and one that ran ahead is trimmed, so the sound keeps time with the picture.
 //! It also reports how loud each source is, ten times a second, for the page's meters.
+//!
+//! A Mac has no loopback of an output device: the computer's sound there is all of what it plays
+//! (but Nook's own), taken by ScreenCaptureKit (`super::mac::system_sound`), one source whatever
+//! device plays it.
 
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,8 +79,17 @@ pub fn microphones() -> Vec<AudioDevice> {
     listed(host.input_devices().ok(), default)
 }
 
-/// The output devices whose sound can be taken, Windows' default first.
+/// The name a Mac's one source of its own sound has.
+pub const MAC_SOUND: &str = "Everything the Mac plays";
+
+/// The output devices whose sound can be taken, Windows' default first. A Mac's is one: all of it.
 pub fn speakers() -> Vec<AudioDevice> {
+    if cfg!(target_os = "macos") {
+        return vec![AudioDevice {
+            name: MAC_SOUND.to_string(),
+            default: true,
+        }];
+    }
     let host = cpal::default_host();
     let default = host.default_output_device().and_then(|d| d.name().ok());
     listed(host.output_devices().ok(), default)
@@ -232,7 +245,7 @@ fn run_source(
     stop: Arc<AtomicBool>,
     ready: mpsc::Sender<Result<(), String>>,
 ) {
-    let stream = match open(&source, inbox) {
+    let stream = match open_source(&source, inbox) {
         Ok(stream) => stream,
         Err(e) => {
             let _ = ready.send(Err(format!("{e:#}")));
@@ -244,6 +257,23 @@ fn run_source(
         std::thread::sleep(Duration::from_millis(50));
     }
     drop(stream);
+}
+
+/// Opens a source: kept open while what this returns is held.
+fn open_source(
+    source: &AudioSource,
+    inbox: Arc<Mutex<Delivered>>,
+) -> Result<Box<dyn std::any::Any>> {
+    #[cfg(target_os = "macos")]
+    if let AudioSource::System { .. } = source {
+        // 48 kHz stereo floats, as the mixer writes.
+        inbox.lock().rate = RATE;
+        let capture = super::mac::system_sound(move |stereo: &[f32]| {
+            inbox.lock().samples.extend_from_slice(stereo);
+        })?;
+        return Ok(Box::new(capture));
+    }
+    Ok(Box::new(open(source, inbox)?))
 }
 
 fn open(source: &AudioSource, inbox: Arc<Mutex<Delivered>>) -> Result<cpal::Stream> {

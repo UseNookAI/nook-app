@@ -139,13 +139,28 @@ fn open_bar(app: &AppHandle, monitor: Option<u64>) {
             return;
         }
     };
+    #[cfg(windows)]
     if let Ok(hwnd) = bar.hwnd() {
         sources::exclude_from_capture(hwnd.0 as isize);
+    }
+    // The NSWindow is only touched on the main thread.
+    #[cfg(target_os = "macos")]
+    if let Ok(ns_window) = bar.ns_window() {
+        let ns_window = ns_window as isize;
+        let _ = bar.run_on_main_thread(move || sources::exclude_from_capture(ns_window));
     }
     let screen = sources::screens()
         .into_iter()
         .find(|s| Some(s.handle) == monitor)
         .or_else(|| sources::screens().into_iter().find(|s| s.primary));
+    // A Mac places windows in points, each screen at its own scale; the bar goes below its menu
+    // bar.
+    #[cfg(target_os = "macos")]
+    if let Some(p) = screen.and_then(|s| nook_core::capture::mac::points(s.handle)) {
+        let x = p.x + (p.width - 340.0) / 2.0;
+        let _ = bar.set_position(tauri::LogicalPosition::new(x, p.y + 40.0));
+    }
+    #[cfg(not(target_os = "macos"))]
     if let (Some(s), Ok(size)) = (screen, bar.outer_size()) {
         let x = s.x + (s.width as i32 - size.width as i32) / 2;
         let _ = bar.set_position(tauri::PhysicalPosition::new(x, s.y + 12));
@@ -165,6 +180,12 @@ pub async fn capture_pick_area(app: AppHandle) -> CmdResult<()> {
     let screens = tauri::async_runtime::spawn_blocking(sources::screens)
         .await
         .map_err(err)?;
+    if screens.is_empty() {
+        // Nothing to pick on: Nook comes back and the page hears no area came.
+        restore_main(&app);
+        events::emit(topic::CAPTURE, json!({ "area": null }));
+        return Ok(());
+    }
     for (i, s) in screens.iter().enumerate() {
         let view = json!({
             "view": "pick-area",
@@ -188,8 +209,16 @@ pub async fn capture_pick_area(app: AppHandle) -> CmdResult<()> {
         .initialization_script(format!("window.__NOOK_VIEW__ = {view};"))
         .build()
         .map_err(err)?;
-        let _ = picker.set_position(tauri::PhysicalPosition::new(s.x, s.y));
-        let _ = picker.set_size(tauri::PhysicalSize::new(s.width, s.height));
+        #[cfg(target_os = "macos")]
+        if let Some(p) = nook_core::capture::mac::points(s.handle) {
+            let _ = picker.set_position(tauri::LogicalPosition::new(p.x, p.y));
+            let _ = picker.set_size(tauri::LogicalSize::new(p.width, p.height));
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let _ = picker.set_position(tauri::PhysicalPosition::new(s.x, s.y));
+            let _ = picker.set_size(tauri::PhysicalSize::new(s.width, s.height));
+        }
         let _ = picker.show();
         if s.primary {
             let _ = picker.set_focus();

@@ -87,11 +87,11 @@ pub trait FlowRuntime: Send + Sync {
     ) -> Result<bool>;
 }
 
-/// An `ffmpeg.exe` on the PATH, as the original also took.
+/// An `ffmpeg.exe` (`ffmpeg` on a Mac) on the PATH, as the original also took.
 fn ffmpeg_on_path() -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
-        .map(|dir| dir.join("ffmpeg.exe"))
+        .map(|dir| dir.join(crate::process::exe("ffmpeg")))
         .find(|exe| exe.is_file())
 }
 
@@ -109,8 +109,8 @@ impl FlowRuntime for RuntimeManager {
                 .unwrap_or(0)
         };
         let installed = |c: EngineComponent| self.is_component_installed(c);
-        let exe = |c: EngineComponent, names: &[&str]| {
-            let exe = packages.executable(c, backend, names);
+        let exe = |c: EngineComponent| {
+            let exe = packages.executable(c, backend, c.executables());
             (installed(c) && exe.is_file()).then_some(exe)
         };
 
@@ -154,10 +154,9 @@ impl FlowRuntime for RuntimeManager {
             speech_download,
             speech_engine_bytes,
             translator,
-            ffmpeg: exe(EngineComponent::Ffmpeg, &["bin/ffmpeg.exe", "ffmpeg.exe"])
-                .or_else(ffmpeg_on_path),
+            ffmpeg: exe(EngineComponent::Ffmpeg).or_else(ffmpeg_on_path),
             ffmpeg_bytes: bytes(EngineComponent::Ffmpeg),
-            voice_engine: exe(EngineComponent::Audio, &["audiocpp_cli.exe"]),
+            voice_engine: exe(EngineComponent::Audio),
             voice_engine_bytes: bytes(EngineComponent::Audio),
             voice_backend,
             cpu: backend == Backend::Cpu,

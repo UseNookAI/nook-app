@@ -1,0 +1,138 @@
+{
+  "components": {
+    "llama": {
+      "version": "b10752",
+      "source": "https://github.com/ggml-org/llama.cpp/releases/tag/b10752",
+      "backends": {
+        "metal": [
+          {
+            "name": "llama-b10752-bin-macos-arm64.tar.gz",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/llama-b10752-bin-macos-arm64.tar.gz",
+            "sha256": "3c2057747f1d3c618d818960524151e48797d3b7f19fbebacc00124d930e3028",
+            "bytes": 11072747
+          }
+        ],
+        "cpu": [
+          {
+            "name": "llama-b10752-bin-macos-arm64.tar.gz",
+            "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10752/llama-b10752-bin-macos-arm64.tar.gz",
+            "sha256": "3c2057747f1d3c618d818960524151e48797d3b7f19fbebacc00124d930e3028",
+            "bytes": 11072747
+          }
+        ]
+      }
+    },
+    "whisper": {
+      "version": "b4938",
+      "source": "https://github.com/UseNookAI/nook-app-windows/releases/tag/engines-macos-1 (whisper.cpp b4938 built with Metal by .github/workflows/macos-engines.yml)",
+      "backends": {
+        "metal": [
+          {
+            "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/UseNookAI/nook-app-windows/releases/download/engines-macos-1/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+          }
+        ],
+        "cpu": [
+          {
+            "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/UseNookAI/nook-app-windows/releases/download/engines-macos-1/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+          }
+        ]
+      }
+    },
+    "sd": {
+      "version": "master-841-6b3edaa",
+      "source": "https://github.com/UseNookAI/nook-app-windows/releases/tag/engines-macos-1 (stable-diffusion.cpp 6b3edaa built with Metal for macOS 13.3 by .github/workflows/macos-engines.yml; upstream's Mac build needs macOS 26)",
+      "backends": {
+        "metal": [
+          {
+            "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/UseNookAI/nook-app-windows/releases/download/engines-macos-1/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+          }
+        ],
+        "cpu": [
+          {
+            "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/UseNookAI/nook-app-windows/releases/download/engines-macos-1/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+          }
+        ]
+      }
+    },
+    "ffmpeg": {
+      "version": "n8.1.3",
+      "source": "https://github.com/UseNookAI/nook-app-windows/releases/tag/engines-macos-1 (FFmpeg n8.1.3, LGPL, static, built by .github/workflows/macos-engines.yml)",
+      "backends": {
+        "any": [
+          {
+            "name": "ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz",
+            "url": "https://github.com/UseNookAI/nook-app-windows/releases/download/engines-macos-1/ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz"
+          }
+        ]
+      }
+    },
+    "audio": {
+      "version": "v0.8.2-audio8-perf-hotfix",
+      "source": "https://github.com/0xShug0/audio.cpp/releases/tag/v0.8.2-audio8-perf-hotfix",
+      "backends": {
+        "metal": [
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-bin-macos-arm64-metal.tar.gz",
+            "sha256": "295c6b77476a9daa455025efe7931d89788e410eb4859d6a93a820c86d8afa26",
+            "bytes": 28530812
+          }
+        ],
+        "cpu": [
+          {
+            "name": "audio-v0.8.2-audio8-perf-hotfix-bin-macos-arm64-metal.tar.gz",
+            "url": "https://github.com/0xShug0/audio.cpp/releases/download/v0.8.2-audio8-perf-hotfix/audio-v0.8.2-audio8-perf-hotfix-bin-macos-arm64-metal.tar.gz",
+            "sha256": "295c6b77476a9daa455025efe7931d89788e410eb4859d6a93a820c86d8afa26",
+            "bytes": 28530812
+          }
+        ]
+      }
+    },
+    "pandoc": {
+      "version": "3.11",
+      "source": "https://github.com/jgm/pandoc/releases/tag/3.11",
+      "backends": {
+        "any": [
+          {
+            "name": "pandoc-3.11-arm64-macOS.zip",
+            "url": "https://github.com/jgm/pandoc/releases/download/3.11/pandoc-3.11-arm64-macOS.zip",
+            "sha256": "15806bedf9517bfead72e88fe6a6696635c3691efbb6e152173440e9c5bb50b4",
+            "bytes": 41832712
+          }
+        ]
+      }
+    },
+    "office": {
+      "version": "26.2.6.3",
+      "source": "https://www.libreoffice.org/download/release-notes/",
+      "backends": {
+        "any": [
+          {
+            "name": "LibreOffice_26.2.6.3_MacOS_aarch64.dmg",
+            "url": "https://downloadarchive.documentfoundation.org/libreoffice/old/26.2.6.3/mac/aarch64/LibreOffice_26.2.6.3_MacOS_aarch64.dmg",
+            "sha256": "94bb3248df074c225490a8a6d1d9dc87c7d6783dbb7a8e9f0d0c3d94348552af",
+            "bytes": 297798926
+          }
+        ]
+      }
+    },
+    "pdfium": {
+      "version": "chromium/7881",
+      "source": "https://github.com/bblanchon/pdfium-binaries/releases/tag/chromium%2F7881",
+      "backends": {
+        "any": [
+          {
+            "name": "pdfium-mac-arm64-7881.tgz",
+            "url": "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/7881/pdfium-mac-arm64.tgz",
+            "sha256": "52e94ca5aa8847934330daf3f8150c190682c5ca93831468794f8b90d4392e40",
+            "bytes": 3533019
+          }
+        ]
+      }
+    }
+  }
+}

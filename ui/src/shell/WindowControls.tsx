@@ -5,12 +5,20 @@
  * The Kotlin window sized itself to the monitor's work area instead of letting the OS maximise it,
  * because an undecorated Swing window maximised by the OS pushed its bottom strip off screen; a
  * Tauri window maximises within the work area, so the plain toggle is used here.
+ *
+ * On a Mac there are none: macOS's own traffic lights sit at the strip's left (see ./platform).
  */
 import { Icon } from "../components/Icon";
+import { isMac } from "./platform";
 import { minimizeWindow, toggleMaximizeWindow, useIsMaximized } from "./window";
 import "./shell.css";
 
 export function WindowControls({ onClose }: { onClose: () => void }) {
+  if (isMac) return null;
+  return <Controls onClose={onClose} />;
+}
+
+function Controls({ onClose }: { onClose: () => void }) {
   const maximized = useIsMaximized();
   return (
     <div className="nk-window-controls">

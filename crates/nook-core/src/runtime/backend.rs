@@ -4,24 +4,27 @@ use serde::{Deserialize, Serialize};
 
 /// Engine build the runtime runs on. Each backend is a separate directory of binaries.
 ///
-/// Serialized as the Java constant name (`"CUDA"`, `"VULKAN"`, `"CPU"`), as Jackson wrote it.
+/// Serialized as the Java constant name (`"CUDA"`, `"VULKAN"`, `"CPU"`), as Jackson wrote it;
+/// `"METAL"` is the Mac's (Apple silicon's GPU through Metal), which the Java app never had.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Backend {
     Cuda,
     Vulkan,
     Cpu,
+    Metal,
 }
 
 impl Backend {
-    pub const ALL: [Backend; 3] = [Backend::Cuda, Backend::Vulkan, Backend::Cpu];
+    pub const ALL: [Backend; 4] = [Backend::Cuda, Backend::Vulkan, Backend::Cpu, Backend::Metal];
 
-    /// The directory and manifest name: `cuda`, `vulkan`, `cpu`.
+    /// The directory and manifest name: `cuda`, `vulkan`, `cpu`, `metal`.
     pub fn id(self) -> &'static str {
         match self {
             Backend::Cuda => "cuda",
             Backend::Vulkan => "vulkan",
             Backend::Cpu => "cpu",
+            Backend::Metal => "metal",
         }
     }
 
@@ -30,6 +33,7 @@ impl Backend {
             Backend::Cuda => "NVIDIA CUDA 12",
             Backend::Vulkan => "Vulkan",
             Backend::Cpu => "CPU",
+            Backend::Metal => "Apple Metal",
         }
     }
 

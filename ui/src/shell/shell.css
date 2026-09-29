@@ -16,6 +16,9 @@
   position: absolute; top: 0; left: 0; right: 0; z-index: 10;
   justify-content: flex-end; padding: 0 var(--space-medium); background: transparent;
 }
+/* A Mac's traffic lights sit at the strip's left (tauri.macos.conf.json: 18 px in, three 14 px
+   lights 20 px apart); the strip's own things start after them, and nothing sits at its right. */
+.nk-topbar--mac { padding: 0 var(--space-large) 0 var(--traffic-lights); }
 /* Over the erase screen's dark backdrop the controls are drawn light, or they would not show. */
 .nk-topbar--on-scrim .nk-window-control { color: var(--on-scrim); }
 .nk-topbar--on-scrim .nk-window-control:hover { background: var(--on-scrim-hover); color: var(--on-accent); }

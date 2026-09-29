@@ -1,6 +1,7 @@
 //! What can be recorded: the screens and the windows open on them, as Windows lists them. A
 //! screen or a window is named to the capture by its handle (HMONITOR, HWND), which is what
-//! FFmpeg's `gfxcapture` takes.
+//! FFmpeg's `gfxcapture` takes. On a Mac, by the display's and the window's ids, which
+//! ScreenCaptureKit takes ([`super::mac`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -8,7 +9,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Screen {
-    /// Windows' handle for it (HMONITOR).
+    /// Windows' handle for it (HMONITOR); a Mac's display id.
     pub handle: u64,
     /// "Screen 1", in Windows' order.
     pub name: String,
@@ -23,10 +24,10 @@ pub struct Screen {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Window {
-    /// Windows' handle for it (HWND).
+    /// Windows' handle for it (HWND); a Mac's window id.
     pub handle: u64,
     pub title: String,
-    /// The program's file name without ".exe": "chrome", "Code".
+    /// The program's file name without ".exe": "chrome", "Code"; a Mac app's name.
     pub app: String,
     pub width: u32,
     pub height: u32,
@@ -42,7 +43,11 @@ pub fn screens() -> Vec<Screen> {
     {
         imp::screens()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::mac::screens()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     Vec::new()
 }
 
@@ -52,7 +57,11 @@ pub fn windows() -> Vec<Window> {
     {
         imp::windows()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::mac::windows()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     Vec::new()
 }
 
@@ -62,29 +71,40 @@ pub fn monitor_of_window(handle: u64) -> Option<u64> {
     {
         imp::monitor_of_window(handle)
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::mac::monitor_of_window(handle)
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     {
         let _ = handle;
         None
     }
 }
 
-/// The person's Videos folder.
+/// The person's Videos folder (a Mac's Movies).
 pub fn videos_folder() -> Option<std::path::PathBuf> {
     #[cfg(windows)]
     {
         imp::videos_folder()
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        super::mac::videos_folder()
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     None
 }
 
-/// Keeps a window of Nook's (its handle) out of every screen capture, this recording's too:
-/// it still shows on screen. Windows 10 2004 and later; elsewhere it stays in.
+/// Keeps a window of Nook's (its handle; a Mac's NSWindow, on the main thread) out of every
+/// screen capture, this recording's too: it still shows on screen. Windows 10 2004 and later;
+/// elsewhere it stays in.
 pub fn exclude_from_capture(handle: isize) {
     #[cfg(windows)]
     imp::exclude_from_capture(handle);
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    super::mac::exclude_from_capture(handle);
+    #[cfg(not(any(windows, target_os = "macos")))]
     let _ = handle;
 }
 

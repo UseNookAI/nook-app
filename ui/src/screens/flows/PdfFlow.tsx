@@ -45,6 +45,7 @@ import { splitPath } from "./format";
 import { useFileDrop } from "./useFileDrop";
 import { registerLeaveCheck } from "../../shell/unsaved";
 import "./pdf.css";
+import { modKey, withMod } from "../../shell/platform";
 
 /** The open document, kept while the page is left and opened again. */
 let rememberedDoc: string | null = null;
@@ -297,11 +298,12 @@ export function PdfFlow({ say, onOpenChange }: { say: (message: string) => void;
     else go();
   };
 
-  // Ctrl+Z takes an edit back, Ctrl+S saves, Ctrl+plus and minus zoom; not while typing.
+  // Ctrl+Z (Cmd+Z on a Mac) takes an edit back, Ctrl+S saves, Ctrl+plus and minus zoom; not while
+  // typing.
   useEffect(() => {
     if (!doc) return;
     const key = (e: KeyboardEvent) => {
-      if (!e.ctrlKey || editing) return;
+      if (!withMod(e) || editing) return;
       const k = e.key.toLowerCase();
       if (k === "z") {
         e.preventDefault();
@@ -401,13 +403,13 @@ export function PdfFlow({ say, onOpenChange }: { say: (message: string) => void;
         </span>
         <span className="nc-flex-spacer" />
         <div className="pdf-zoom">
-          <IconButton icon="minus" size={28} iconSize={14} title="Smaller (Ctrl -)" onClick={() => setZoom((z) => [...ZOOMS].reverse().find((v) => v < z - 0.01) ?? z)} />
+          <IconButton icon="minus" size={28} iconSize={14} title={`Smaller (${modKey} -)`} onClick={() => setZoom((z) => [...ZOOMS].reverse().find((v) => v < z - 0.01) ?? z)} />
           <button type="button" className="numeric pdf-zoom__value" title="Fit the width" onClick={() => setZoom(1)}>
             {Math.round(zoom * 100)}%
           </button>
-          <IconButton icon="plus" size={28} iconSize={14} title="Larger (Ctrl +)" onClick={() => setZoom((z) => ZOOMS.find((v) => v > z + 0.01) ?? z)} />
+          <IconButton icon="plus" size={28} iconSize={14} title={`Larger (${modKey} +)`} onClick={() => setZoom((z) => ZOOMS.find((v) => v > z + 0.01) ?? z)} />
         </div>
-        <QuietAction text="Undo" icon="undo" disabled={!doc.canUndo || busy} onClick={undo} title="Take the last change back (Ctrl Z)" />
+        <QuietAction text="Undo" icon="undo" disabled={!doc.canUndo || busy} onClick={undo} title={`Take the last change back (${modKey} Z)`} />
         {doc.savedTo && !doc.dirty && <QuietAction text="Show" icon="folder-open" onClick={() => pdfReveal(doc.savedTo!).catch(() => undefined)} />}
         <QuietAction text="Save as…" onClick={() => save(true)} />
         <Button text="Save" icon="download" iconPosition="start" compact disabled={!doc.dirty} onClick={() => save(false)} />

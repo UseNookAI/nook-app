@@ -227,11 +227,21 @@ impl VerifyCommands {
             return run_sandboxed(&parts, cwd, env, limit).await;
         }
         let mut cmd = crate::process::command(&parts[0]);
-        cmd.args(&parts[1..])
-            .current_dir(cwd)
-            .envs(env)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        cmd.args(&parts[1..]).current_dir(cwd).envs(env);
+        // A Mac's sandbox (Seatbelt) keeps them there: the check starts under sandbox-exec, with
+        // only the environment it is given.
+        #[cfg(target_os = "macos")]
+        if super::sandbox::enabled() {
+            let (parts, dir) = (parts.clone(), cwd.to_path_buf());
+            let env = env.clone();
+            let (program, args, all) =
+                tokio::task::spawn_blocking(move || super::sandbox::seatbelt(&parts, &dir, &env))
+                    .await
+                    .map_err(|e| anyhow!("{e}"))??;
+            cmd = crate::process::command(program);
+            cmd.args(args).current_dir(cwd).env_clear().envs(all);
+        }
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         #[cfg(unix)]
         cmd.process_group(0);
         let started = Instant::now();
@@ -604,12 +614,14 @@ mod tree {
         /// The command leads its own process group (see `process_group(0)`): kill all of it.
         pub(super) fn kill(&mut self) {
             self.armed = false;
-            if let Some(pid) = self.pid {
-                let _ = crate::process::std_command("kill")
-                    .args(["-KILL", "--", &format!("-{pid}")])
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .status();
+            if let Some(pid) = self.pid.and_then(|p| i32::try_from(p).ok()) {
+                // SAFETY: a signal to the process group the command leads.
+                #[cfg(unix)]
+                unsafe {
+                    libc::killpg(pid, libc::SIGKILL);
+                }
+                #[cfg(not(unix))]
+                let _ = pid;
             }
         }
     }

@@ -239,7 +239,39 @@ fn installer_names_carry_their_version() {
         version_from_name("Nook-0.4.2.exe").as_deref(),
         Some("0.4.2")
     );
+    assert_eq!(
+        version_from_name("Nook-0.6.0-macos-arm64.app.tar.gz").as_deref(),
+        Some("0.6.0")
+    );
     assert_eq!(version_from_name("setup.exe"), None);
+    assert_eq!(version_from_name("Nook.app.tar.gz"), None);
+}
+
+#[test]
+fn a_mac_update_has_its_manifest_under_the_channel() {
+    let dir = tempfile::tempdir().unwrap();
+    let key = load_key(&fixture_key(dir.path())).unwrap();
+    let app = dir.path().join("Nook-0.6.0-macos-arm64.app.tar.gz");
+    std::fs::write(&app, b"a bundle").unwrap();
+    let m = build_manifest(&ManifestRequest {
+        channel: "stable".into(),
+        installer: Some(app),
+        url: Some("https://dl.example/nook/builds/0.6.0/Nook-0.6.0-macos-arm64.app.tar.gz".into()),
+        ..Default::default()
+    })
+    .unwrap();
+    assert_eq!(m.version, "0.6.0");
+    let out = dir.path().join("out");
+    let path = write_signed_for(&key, &m, &out, Some("macos-arm64")).unwrap();
+    assert_eq!(
+        path,
+        out.join("stable").join("macos-arm64").join("latest.json")
+    );
+    assert!(verify_files(FIXTURE_PUBLIC, &path).unwrap().is_some());
+    // Windows' stays where every Nook before the Mac's reads it
+    let windows = write_signed_for(&key, &m, &out, None).unwrap();
+    assert_eq!(windows, out.join("stable").join("latest.json"));
+    assert!(write_signed_for(&key, &m, &out, Some("../up")).is_err());
 }
 
 #[test]

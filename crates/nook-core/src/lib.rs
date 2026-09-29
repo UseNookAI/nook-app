@@ -20,6 +20,7 @@ pub mod home;
 pub mod logging;
 pub mod migrate;
 pub mod nooklets;
+pub mod platform;
 pub mod process;
 pub mod resources;
 pub mod settings;

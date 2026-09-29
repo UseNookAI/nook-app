@@ -2675,9 +2675,15 @@ fn add_line_like(
             .is_some_and(|t| came_through(text, &t.text()));
         if ok {
             let note = if baseline.is_nan() {
-                format!("The PDF carries only the letters it used from {family}, so the changed text is set in {used} from Windows.")
+                format!(
+                    "The PDF carries only the letters it used from {family}, so the changed text is set in {used} from {}.",
+                    crate::platform::SYSTEM_NAME
+                )
             } else {
-                format!("New lines are set in {used} from Windows.")
+                format!(
+                    "New lines are set in {used} from {}.",
+                    crate::platform::SYSTEM_NAME
+                )
             };
             return Ok((index, Some(note)));
         }

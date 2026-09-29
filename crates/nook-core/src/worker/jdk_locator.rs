@@ -4,6 +4,10 @@
 //! (`org.gradle.java.home`), the user's and the machine's registered environment, the usual install
 //! folders, and PATH. The first of these with a `bin\javac` is the one.
 //!
+//! On a Mac the usual folders are `JavaVirtualMachines` (the system's and the person's, each JDK's
+//! home at `<jdk>/Contents/Home`) and Homebrew's `openjdk`; `/usr/bin/javac` is only Apple's stub,
+//! and a Homebrew `javac` on PATH is a link, so a PATH entry counts only as the JDK it leads to.
+//!
 //! Ports `worker/JdkLocator.java`.
 
 use std::collections::HashMap;
@@ -17,6 +21,7 @@ pub fn find(repo_root: &Path) -> Option<PathBuf> {
         env: &|name| std::env::var(name).ok(),
         user_home: user_home(),
         registry: cfg!(windows),
+        mac: cfg!(target_os = "macos"),
     };
     candidates(&sources, repo_root)
         .into_iter()
@@ -36,6 +41,7 @@ struct Sources<'a> {
     env: &'a dyn Fn(&str) -> Option<String>,
     user_home: Option<PathBuf>,
     registry: bool,
+    mac: bool,
 }
 
 fn candidates(src: &Sources, repo_root: &Path) -> Vec<PathBuf> {
@@ -94,6 +100,43 @@ fn candidates(src: &Sources, repo_root: &Path) -> Vec<PathBuf> {
                         .contains("jdk")
                 {
                     out.push(path);
+                }
+            }
+        }
+    }
+    if src.mac {
+        let homes = [
+            Some(PathBuf::from("/Library/Java/JavaVirtualMachines")),
+            src.user_home
+                .as_ref()
+                .map(|h| h.join("Library").join("Java").join("JavaVirtualMachines")),
+        ];
+        for base in homes.into_iter().flatten() {
+            let Ok(entries) = std::fs::read_dir(&base) else {
+                continue;
+            };
+            let mut jdks: Vec<PathBuf> = entries
+                .flatten()
+                .map(|e| e.path().join("Contents").join("Home"))
+                .filter(|p| p.is_dir())
+                .collect();
+            // The newest first, as the names sort ("temurin-21.jdk" after "temurin-17.jdk").
+            jdks.sort();
+            out.extend(jdks.into_iter().rev());
+        }
+        for brew in ["/opt/homebrew/opt", "/usr/local/opt"] {
+            let Ok(entries) = std::fs::read_dir(brew) else {
+                continue;
+            };
+            for e in entries.flatten() {
+                if e.file_name().to_string_lossy().starts_with("openjdk") {
+                    out.push(
+                        e.path()
+                            .join("libexec")
+                            .join("openjdk.jdk")
+                            .join("Contents")
+                            .join("Home"),
+                    );
                 }
             }
         }
@@ -189,9 +232,22 @@ fn registry_env(key: &str) -> Option<String> {
 fn from_path(path: Option<String>) -> Option<String> {
     let path = path?;
     for dir in std::env::split_paths(&path) {
-        if dir.join(exe("javac")).is_file() {
-            return dir.parent().map(|p| p.to_string_lossy().into_owned());
+        let javac = dir.join(exe("javac"));
+        if !javac.is_file() {
+            continue;
         }
+        // A link (Homebrew's) counts as the JDK it leads to; Apple's /usr/bin/javac is a stub
+        // that only asks for a JDK to be installed.
+        let real = if cfg!(unix) {
+            std::fs::canonicalize(&javac).unwrap_or(javac)
+        } else {
+            javac
+        };
+        let home = real.parent().and_then(Path::parent)?;
+        if cfg!(target_os = "macos") && home == Path::new("/usr") {
+            continue;
+        }
+        return Some(home.to_string_lossy().into_owned());
     }
     None
 }
@@ -322,6 +378,7 @@ mod tests {
             env: &lookup,
             user_home: user_home.map(Path::to_path_buf),
             registry: false,
+            mac: false,
         };
         candidates(&sources, repo)
             .into_iter()

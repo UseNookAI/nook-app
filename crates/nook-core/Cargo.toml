@@ -99,6 +99,30 @@ windows = { version = "0.61", features = [
     "Storage_Streams",
 ] }
 
+[target.'cfg(unix)'.dependencies]
+# The reaper of engine processes (process.rs): kqueue and signals.
+libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Apple silicon's GPU: its name and the working set Metal recommends, for the model planner.
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice"] }
+# The PDF editor's text in pictures: Apple's Vision reads it, from a CGImage of the page.
+objc2-vision = "0.3"
+objc2-core-graphics = "0.3"
+objc2-core-foundation = "0.3"
+# The screen recorder: ScreenCaptureKit captures a screen, a window or an area and the Mac's own
+# sound; its frames (CoreMedia sample buffers holding CoreVideo pixel buffers) go to FFmpeg.
+objc2-screen-capture-kit = "0.3"
+objc2-core-media = "0.3"
+objc2-core-video = "0.3"
+objc2-core-audio-types = "0.3"
+block2 = "0.6"
+dispatch2 = "0.3"
+# Stream keys in the login keychain.
+security-framework = "3"
+
 [dev-dependencies]
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }

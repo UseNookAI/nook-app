@@ -5,8 +5,12 @@
 pub const CATALOG_JSON: &str = include_str!("../../../resources/runtime/catalog.json");
 /// The voices the flows speak with (`runtime/voices.json`).
 pub const VOICES_JSON: &str = include_str!("../../../resources/runtime/voices.json");
-/// The pinned engine releases (`runtime/engines.json`).
+/// The pinned engine releases (`runtime/engines.json`; `runtime/engines-macos.json` on a Mac,
+/// Apple silicon's builds under the backends `metal` and `cpu`).
+#[cfg(not(target_os = "macos"))]
 pub const ENGINES_JSON: &str = include_str!("../../../resources/runtime/engines.json");
+#[cfg(target_os = "macos")]
+pub const ENGINES_JSON: &str = include_str!("../../../resources/runtime/engines-macos.json");
 /// Prompt templates (`prompts.json`).
 pub const PROMPTS_JSON: &str = include_str!("../../../resources/prompts.json");
 /// Public keys trusted to sign update manifests, one base64 key per line (`release-keys.txt`).

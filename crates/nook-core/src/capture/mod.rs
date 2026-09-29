@@ -6,8 +6,11 @@
 //! - [`plan`]: FFmpeg's command line.
 //! - [`secret`]: stream keys, kept encrypted for the person's account.
 //! - [`service`]: the recordings themselves ([`CaptureService`]).
+//! - `mac`: on a Mac, the capture itself (ScreenCaptureKit), which FFmpeg only encodes.
 
 pub mod audio;
+#[cfg(target_os = "macos")]
+pub mod mac;
 pub mod plan;
 pub mod secret;
 pub mod service;

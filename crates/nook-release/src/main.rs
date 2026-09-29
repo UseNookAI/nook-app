@@ -5,7 +5,7 @@ use std::process::ExitCode;
 
 use anyhow::{bail, Context, Result};
 use nook_release::{
-    build_manifest, keygen, load_key, public_line, verify_files, write_signed, ManifestRequest,
+    build_manifest, keygen, load_key, public_line, verify_files, write_signed_for, ManifestRequest,
 };
 
 const USAGE: &str = "\
@@ -14,7 +14,7 @@ Nook releases: the signing key, the signed latest.json manifest, and its check.
 Usage:
   nook-release keygen KEYFILE                                  a new Ed25519 key; prints the public key line
   nook-release manifest KEYFILE --channel stable|dev --installer PATH (--url URL | --base URL) --out DIR
-                        [--version V] [--commit SHA] [--notes TEXT] [--published ISO]
+                        [--version V] [--commit SHA] [--notes TEXT] [--published ISO] [--platform P]
   nook-release manifest KEYFILE --channel stable|dev --sha256 HEX --size BYTES --version V --url URL --out DIR ...
                                                                for an installer already on the host
   nook-release verify KEYS DIR/<channel>/latest.json           KEYS: a public key (base64url) or release-keys.txt
@@ -24,7 +24,8 @@ The manifest is written to DIR/<channel>/latest.json with latest.json.sig beside
 base64url Ed25519 signature over \"nook-release-v1\" + the exact bytes of latest.json. --base puts the
 installer at <base>/builds/<version>-<commit>/<file>, the download host's layout. The version and
 the commit default to what the installer's build.json beside it says, when there is one, and the
-version then to the installer's name.";
+version then to the installer's name. --platform macos-arm64 writes a Mac update's manifest to
+DIR/<channel>/macos-arm64/latest.json, where the Mac app reads it; Windows' stays the channel's own.";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -91,10 +92,10 @@ fn run(args: &[String]) -> Result<ExitCode> {
             }
         }
         "manifest" => {
-            let (keyfile, req, out) = manifest_args(rest)?;
+            let (keyfile, req, out, platform) = manifest_args(rest)?;
             let key = load_key(Path::new(&keyfile))?;
             let m = build_manifest(&req)?;
-            let path = write_signed(&key, &m, &out)?;
+            let path = write_signed_for(&key, &m, &out, platform.as_deref())?;
             println!("wrote {} and latest.json.sig", path.display());
             print!(
                 "{}",
@@ -115,9 +116,12 @@ fn positional<const N: usize>(rest: &[String]) -> Result<[String; N]> {
         .map_err(|_| anyhow::anyhow!("expected {N} argument(s)\n\n{USAGE}"))
 }
 
-fn manifest_args(rest: &[String]) -> Result<(String, ManifestRequest, PathBuf)> {
+type ManifestArgs = (String, ManifestRequest, PathBuf, Option<String>);
+
+fn manifest_args(rest: &[String]) -> Result<ManifestArgs> {
     let mut keyfile = None;
     let mut out = None;
+    let mut platform = None;
     let mut req = ManifestRequest::default();
     let mut it = rest.iter();
     while let Some(arg) = it.next() {
@@ -138,6 +142,7 @@ fn manifest_args(rest: &[String]) -> Result<(String, ManifestRequest, PathBuf)> 
             "--commit" => req.commit = Some(value()?),
             "--notes" => req.notes = Some(value()?),
             "--published" => req.published = Some(value()?),
+            "--platform" => platform = Some(value()?),
             flag if flag.starts_with("--") => bail!("unknown option {flag}"),
             positional if keyfile.is_none() => keyfile = Some(positional.to_string()),
             extra => bail!("unexpected argument {extra}"),
@@ -148,5 +153,5 @@ fn manifest_args(rest: &[String]) -> Result<(String, ManifestRequest, PathBuf)> 
         bail!("--channel stable|dev is required");
     }
     let out = out.context("--out DIR is required")?;
-    Ok((keyfile, req, out))
+    Ok((keyfile, req, out, platform))
 }

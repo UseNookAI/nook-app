@@ -93,3 +93,82 @@ jobs:
           files: |
             dist-release/*.exe
             dist-release/manifests/**/*
+
+  # The same version for the Mac: its disk image, the tarball an installed Nook updates from, and
+  # its manifests under <channel>/macos-arm64/ (where the Mac app reads them; Windows' stay the
+  # channel's own). Signed and notarized when the secrets macos.yml names are set.
+  release-macos:
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.3"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: v
+        run: |
+          v="${{ github.event.inputs.version }}"
+          [ -n "$v" ] || v="${GITHUB_REF_NAME#v}"
+          echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Not a version: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "commit=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
+
+      - name: Install npm packages
+        run: npm ci
+
+      - name: Install the UI's npm packages
+        run: npm --prefix ui ci
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Build the app
+        env:
+          NOOK_VERSION: ${{ steps.v.outputs.version }}
+          NOOK_COMMIT: ${{ steps.v.outputs.commit }}
+          NOOK_RS_UPDATE_BASE: ${{ vars.NOOK_RS_UPDATE_BASE }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          NOTARIZE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          NOTARIZE_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: ./tools/package-macos.sh
+
+      - name: Sign the manifests
+        env:
+          NOOK_RS_RELEASE_KEY: ${{ secrets.NOOK_RS_RELEASE_KEY }}
+        run: |
+          if [ -z "$NOOK_RS_RELEASE_KEY" ]; then echo "::warning::No NOOK_RS_RELEASE_KEY secret: the release has no signed manifests"; exit 0; fi
+          v='${{ steps.v.outputs.version }}'
+          c='${{ steps.v.outputs.commit }}'
+          name="Nook-$v-macos-arm64.app.tar.gz"
+          key="$RUNNER_TEMP/release-signing.json"
+          printf '%s' "$NOOK_RS_RELEASE_KEY" > "$key"
+          trap 'rm -f "$key"' EXIT
+          base='${{ vars.NOOK_RS_UPDATE_BASE }}'
+          if [ -n "$base" ]; then url="$base/builds/$v-$c/$name"; else url="https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/$name"; fi
+          for ch in dev stable; do
+            cargo run -q -p nook-release -- manifest "$key" --channel "$ch" --installer "dist-macos/$name" --url "$url" --out dist-macos/manifests --version "$v" --commit "$c" --notes "Nook $v" --platform macos-arm64
+          done
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Nook ${{ steps.v.outputs.version }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.v.outputs.version) }}
+          files: |
+            dist-macos/*.dmg
+            dist-macos/*.app.tar.gz
+            dist-macos/manifests/**/*

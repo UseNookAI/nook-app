@@ -776,7 +776,8 @@ impl RuntimeManager {
     }
 
     /// The backend without waiting: the chosen one, or before [`start`](Self::start) has chosen,
-    /// the override or what the inventory has seen so far (Vulkan when nothing yet).
+    /// the override or what the inventory has seen so far (Vulkan when nothing yet; Metal on a
+    /// Mac).
     pub fn backend_now(&self) -> Backend {
         if let Some(b) = *self.backend.read() {
             return b;
@@ -792,7 +793,7 @@ impl RuntimeManager {
         if self.config.inventory.has_nvidia() {
             Backend::Cuda
         } else {
-            Backend::Vulkan
+            self.config.inventory.other_gpu_backend()
         }
     }
 
@@ -833,31 +834,7 @@ impl RuntimeManager {
         let packages = &self.config.packages;
         match component {
             EngineComponent::Llama => packages.server_executable(backend),
-            EngineComponent::Whisper => {
-                packages.executable(component, backend, &["whisper-server.exe", "server.exe"])
-            }
-            EngineComponent::Sd => {
-                packages.executable(component, backend, &["sd-cli.exe", "sd.exe"])
-            }
-            EngineComponent::Ffmpeg => {
-                packages.executable(component, backend, &["bin/ffmpeg.exe", "ffmpeg.exe"])
-            }
-            EngineComponent::Audio => {
-                packages.executable(component, backend, &["audiocpp_cli.exe"])
-            }
-            EngineComponent::Pdfium => {
-                packages.executable(component, backend, &["bin/pdfium.dll", "pdfium.dll"])
-            }
-            EngineComponent::Pandoc => packages.executable(component, backend, &["pandoc.exe"]),
-            EngineComponent::Office => packages.executable(
-                component,
-                backend,
-                &[
-                    "program/soffice.com",
-                    "LibreOffice/program/soffice.com",
-                    "PFiles/LibreOffice/program/soffice.com",
-                ],
-            ),
+            _ => packages.executable(component, backend, component.executables()),
         }
     }
 
@@ -1631,8 +1608,10 @@ impl RuntimeManager {
         // The context one request sees; the launcher multiplies by the slots for --ctx-size.
         let n_ctx = self.requested_ctx(model, true);
         let gpu = b != Backend::Cpu;
-        let kv_quantized = b == Backend::Cuda && !meta.is_embedding_model();
-        let flash = b == Backend::Cuda;
+        // Metal plans as CUDA does: a budget read from the device, flash attention, a q8 cache.
+        let planned = matches!(b, Backend::Cuda | Backend::Metal);
+        let kv_quantized = planned && !meta.is_embedding_model();
+        let flash = planned;
 
         if !gpu {
             return Plan::new(0, n_ctx, 1, false, false);
@@ -2055,7 +2034,8 @@ impl RuntimeManager {
             &model.file,
             &exe,
             &self.config.home.engine_logs_dir(),
-            b == Backend::Cuda,
+            // Whisper's Vulkan build was left on the processor; its Metal build runs on the GPU.
+            matches!(b, Backend::Cuda | Backend::Metal),
         )?);
         self.emit("model_loading", Some(&model.id), "speech".to_string());
         fresh.start(self.options.speech_start_timeout).await?;
@@ -2650,6 +2630,7 @@ pub(crate) mod testing {
     use std::io::Write;
 
     pub(crate) struct Rig {
+        #[cfg_attr(not(windows), allow(dead_code))]
         pub dir: tempfile::TempDir,
         pub home: Home,
         pub bin: PathBuf,
@@ -2658,6 +2639,7 @@ pub(crate) mod testing {
 
     pub(crate) struct RigSpec {
         /// Free memory the fake nvidia-smi reports (Windows); None: no GPU reading at all.
+        #[cfg_attr(not(windows), allow(dead_code))]
         pub free_mb: Option<u64>,
         pub backend: Backend,
         pub catalog: Option<String>,

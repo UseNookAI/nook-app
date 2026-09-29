@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Nook under the hardened runtime (needed to notarize it). It is not an App Store app and not
+  sandboxed: it runs downloaded engines and a Code worker's checks, each its own process.
+  - audio-input: the voice prompt, the flows' microphone and the screen recorder's.
+  - disable-library-validation: PDFium (the PDF editor) is a library downloaded like an engine and
+    loaded into Nook's own process, signed by its builders rather than Nook's team.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

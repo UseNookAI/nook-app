@@ -245,13 +245,16 @@ fn file_name_of(url: &str) -> String {
 }
 
 /// The version in an installer's name: Tauri's `Nook_0.5.1_x64-setup.exe` (or the earlier
-/// `Nook RS_0.5.1_x64-setup.exe`), `Nook-RS-0.5.1-setup.exe`, or the published `Nook-0.5.1.exe`.
+/// `Nook RS_0.5.1_x64-setup.exe`), `Nook-RS-0.5.1-setup.exe`, the published `Nook-0.5.1.exe`, or
+/// a Mac update's `Nook-0.6.0-macos-arm64.app.tar.gz`.
 pub fn version_from_name(name: &str) -> Option<String> {
     let tauri = regex!(r"^Nook(?:[ -]RS)?[-_](\d[^_]*?)(?:[-_]x64)?[-_]setup\.exe$");
     let original = regex!(r"^Nook-(.+)\.exe$");
+    let mac = regex!(r"^Nook[-_](\d[^_]*?)[-_]macos[-_][a-z0-9]+\.app\.tar\.gz$");
     tauri
         .captures(name)
         .or_else(|| original.captures(name))
+        .or_else(|| mac.captures(name))
         .map(|c| c[1].to_string())
 }
 
@@ -277,9 +280,33 @@ pub fn manifest_bytes(m: &Manifest) -> Vec<u8> {
 /// Writes `DIR/<channel>/latest.json` and its `latest.json.sig`, checks the pair verifies against
 /// the key's public half, and returns the manifest's path.
 pub fn write_signed(key: &SigningKey, m: &Manifest, out: &Path) -> Result<PathBuf> {
+    write_signed_in(key, m, &out.join(&m.channel))
+}
+
+/// [`write_signed`] for a platform whose builds have a manifest of their own under the channel's
+/// (`DIR/<channel>/<platform>/latest.json`, e.g. `macos-arm64`): the Windows installer's stays the
+/// channel's own `latest.json`, where every Nook before the Mac's reads it.
+pub fn write_signed_for(
+    key: &SigningKey,
+    m: &Manifest,
+    out: &Path,
+    platform: Option<&str>,
+) -> Result<PathBuf> {
+    match platform.filter(|p| !p.is_empty()) {
+        Some(p) => {
+            if !regex!(r"^[a-z0-9][a-z0-9-]*$").is_match(p) {
+                bail!("--platform is a folder name such as macos-arm64");
+            }
+            write_signed_in(key, m, &out.join(&m.channel).join(p))
+        }
+        None => write_signed(key, m, out),
+    }
+}
+
+fn write_signed_in(key: &SigningKey, m: &Manifest, dir: &Path) -> Result<PathBuf> {
     let body = manifest_bytes(m);
     let signature = manifest::sign(key, &body);
-    let dir = out.join(&m.channel);
+    let dir = dir.to_path_buf();
     std::fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
     let path = dir.join("latest.json");
     std::fs::write(&path, &body).with_context(|| format!("could not write {}", path.display()))?;

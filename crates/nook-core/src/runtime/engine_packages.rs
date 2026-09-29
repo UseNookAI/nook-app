@@ -173,7 +173,7 @@ impl EnginePackages {
 
     pub fn server_executable(&self, backend: Backend) -> PathBuf {
         self.dir(EngineComponent::Llama, backend)
-            .join("llama-server.exe")
+            .join(EngineComponent::Llama.executables()[0])
     }
 
     /// First existing executable among the candidates inside the component directory, else the
@@ -338,8 +338,11 @@ impl EnginePackages {
     }
 }
 
-/// Extracts a zip, or a `.tgz` / `.tar.gz` (PDFium's), flattening a single top-level directory if
-/// the archive has one. Refuses entries that would land outside `into`.
+/// Extracts a zip, or a `.tgz` / `.tar.gz` (PDFium's, and the Mac engines'), flattening a single
+/// top-level directory if the archive has one. Refuses entries that would land outside `into`.
+/// Off Windows, files keep their Unix permissions and symbolic links (llama.cpp's libraries) are
+/// made again when they point inside `into`; a program the archive left without its executable
+/// bit (audio.cpp's Mac build) gets it back.
 pub fn extract(zip: &Path, into: &Path) -> Result<()> {
     let name = zip.to_string_lossy().to_lowercase();
     if name.ends_with(".tgz") || name.ends_with(".tar.gz") {
@@ -347,6 +350,9 @@ pub fn extract(zip: &Path, into: &Path) -> Result<()> {
     }
     if name.ends_with(".msi") {
         return extract_msi(zip, into);
+    }
+    if name.ends_with(".dmg") {
+        return extract_dmg(zip, into);
     }
     let file =
         std::fs::File::open(zip).with_context(|| format!("Could not read {}", zip.display()))?;
@@ -377,11 +383,93 @@ pub fn extract(zip: &Path, into: &Path) -> Result<()> {
                 std::fs::create_dir_all(parent)
                     .with_context(|| format!("Could not create {}", parent.display()))?;
             }
+            let mode = entry.unix_mode();
+            if mode.is_some_and(|m| m & 0o170000 == 0o120000) {
+                let mut target = String::new();
+                std::io::Read::read_to_string(&mut entry, &mut target)
+                    .with_context(|| format!("Could not read {}", zip.display()))?;
+                link_inside(into, &out, &target)?;
+                continue;
+            }
             let mut f = std::fs::File::create(&out)
                 .with_context(|| format!("Could not write {}", out.display()))?;
             std::io::copy(&mut entry, &mut f)
                 .with_context(|| format!("Could not write {}", out.display()))?;
+            drop(f);
+            set_mode(&out, mode)?;
         }
+    }
+    Ok(())
+}
+
+/// Gives an extracted file its archive's permissions (Unix), making a program executable when
+/// the archive forgot to. Nothing on Windows.
+#[cfg(unix)]
+fn set_mode(file: &Path, mode: Option<u32>) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut mode = mode.map(|m| m & 0o777).filter(|m| *m != 0).unwrap_or(0o644);
+    if mode & 0o111 == 0 && is_program(file) {
+        mode |= 0o755;
+    }
+    std::fs::set_permissions(file, std::fs::Permissions::from_mode(mode))
+        .with_context(|| format!("Could not set the permissions of {}", file.display()))
+}
+
+#[cfg(not(unix))]
+fn set_mode(_file: &Path, _mode: Option<u32>) -> Result<()> {
+    Ok(())
+}
+
+/// A Mach-O or ELF binary, or a script with a `#!` line: something to run, not to read.
+#[cfg(unix)]
+fn is_program(file: &Path) -> bool {
+    use std::io::Read;
+    let mut head = [0u8; 4];
+    let Ok(mut f) = std::fs::File::open(file) else {
+        return false;
+    };
+    if f.read_exact(&mut head).is_err() {
+        return false;
+    }
+    matches!(
+        head,
+        [0xcf, 0xfa, 0xed, 0xfe] // 64-bit Mach-O
+            | [0xca, 0xfe, 0xba, 0xbe] // universal Mach-O
+            | [0x7f, b'E', b'L', b'F']
+    ) || head.starts_with(b"#!")
+}
+
+/// Makes the symbolic link `out` -> `target` when the target stays inside `into` (a library's
+/// versioned name), and refuses one that points out of it.
+fn link_inside(into: &Path, out: &Path, target: &str) -> Result<()> {
+    let base = out
+        .parent()
+        .and_then(|p| p.strip_prefix(into).ok())
+        .map(|p| p.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let joined = if base.is_empty() {
+        target.to_string()
+    } else {
+        format!("{base}/{target}")
+    };
+    if target.starts_with('/') || resolve_inside(into, &joined).is_none() {
+        bail!(
+            "Archive link escapes target directory: {} -> {target}",
+            out.display()
+        );
+    }
+    if let Some(parent) = out.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Could not create {}", parent.display()))?;
+    }
+    let _ = std::fs::remove_file(out);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, out)
+        .with_context(|| format!("Could not link {}", out.display()))?;
+    // Windows engines carry no links; a copy of the target stands in should one ever come.
+    #[cfg(not(unix))]
+    if let Some(src) = resolve_inside(into, &joined).filter(|p| p.is_file()) {
+        std::fs::copy(&src, out).with_context(|| format!("Could not copy {}", src.display()))?;
     }
     Ok(())
 }
@@ -442,12 +530,25 @@ fn extract_tgz(archive: &Path, into: &Path) -> Result<()> {
                     std::fs::create_dir_all(parent)
                         .with_context(|| format!("Could not create {}", parent.display()))?;
                 }
+                let mode = entry.header().mode().ok();
                 let mut f = std::fs::File::create(&out)
                     .with_context(|| format!("Could not write {}", out.display()))?;
                 std::io::copy(&mut entry, &mut f)
                     .with_context(|| format!("Could not write {}", out.display()))?;
+                drop(f);
+                set_mode(&out, mode)?;
             }
-            // Links and the like are not part of an engine.
+            // llama.cpp's Mac build names each library by its version and links the short names.
+            tar::EntryType::Symlink => {
+                let target = entry
+                    .link_name()?
+                    .map(|t| t.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_default();
+                if !target.is_empty() {
+                    link_inside(into, &out, &target)?;
+                }
+            }
+            // Hard links, devices and the like are not part of an engine.
             _ => {}
         }
     }
@@ -563,6 +664,82 @@ fn extract_msi(msi: &Path, into: &Path) -> Result<()> {
     }
 }
 
+/// Copies the apps out of a Mac disk image (LibreOffice's): the image is attached read-only,
+/// out of sight (no Finder window, no desktop icon), each `.app` on it is copied with `ditto`
+/// (which keeps its links, permissions and signature), and the image is detached again. Nothing
+/// is installed into /Applications.
+fn extract_dmg(dmg: &Path, into: &Path) -> Result<()> {
+    std::fs::create_dir_all(into)
+        .with_context(|| format!("Could not create {}", into.display()))?;
+    let mount = into.with_extension("mount");
+    let _ = std::fs::remove_dir(&mount);
+    std::fs::create_dir_all(&mount)
+        .with_context(|| format!("Could not create {}", mount.display()))?;
+    let mut attach = std::process::Command::new("/usr/bin/hdiutil")
+        .args([
+            "attach",
+            "-nobrowse",
+            "-readonly",
+            "-noautoopen",
+            "-mountpoint",
+        ])
+        .arg(&mount)
+        .arg(dmg)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .context("Could not start hdiutil")?;
+    // An image with a licence to agree to asks on standard input first.
+    if let Some(mut stdin) = attach.stdin.take() {
+        use std::io::Write;
+        let _ = stdin.write_all(b"Y\n");
+    }
+    let out = attach
+        .wait_with_output()
+        .context("hdiutil did not finish")?;
+    if !out.status.success() {
+        let _ = std::fs::remove_dir(&mount);
+        bail!(
+            "Could not open the disk image {}: {}",
+            dmg.display(),
+            String::from_utf8_lossy(&out.stderr).trim()
+        );
+    }
+    let copied = (|| -> Result<usize> {
+        let mut apps = 0;
+        for e in std::fs::read_dir(&mount)?.flatten() {
+            let path = e.path();
+            let is_app = path
+                .extension()
+                .is_some_and(|x| x.eq_ignore_ascii_case("app"));
+            // The image's own link to /Applications is a symbolic link, never followed.
+            if !is_app || e.file_type().map(|t| t.is_symlink()).unwrap_or(true) {
+                continue;
+            }
+            let status = std::process::Command::new("/usr/bin/ditto")
+                .arg(&path)
+                .arg(into.join(e.file_name()))
+                .status()
+                .context("Could not start ditto")?;
+            if !status.success() {
+                bail!("Could not copy {} out of the disk image", path.display());
+            }
+            apps += 1;
+        }
+        Ok(apps)
+    })();
+    let _ = std::process::Command::new("/usr/bin/hdiutil")
+        .args(["detach", "-force"])
+        .arg(&mount)
+        .output();
+    let _ = std::fs::remove_dir(&mount);
+    match copied? {
+        0 => bail!("The disk image {} holds no app", dmg.display()),
+        _ => Ok(()),
+    }
+}
+
 pub(crate) fn delete_tree(dir: &Path) -> Result<()> {
     if !dir.exists() {
         return Ok(());
@@ -610,6 +787,74 @@ mod tests {
         let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
         gz.write_all(&raw).unwrap();
         gz.finish().unwrap()
+    }
+
+    /// A Mac engine's archive: a folder around it all, a library by its version with its short
+    /// name linked to it (the link first, as llama.cpp's has it), and a program without its
+    /// executable bit (as audio.cpp's has it).
+    fn mac_tgz(link_to: &str) -> Vec<u8> {
+        let mut tar = tar::Builder::new(Vec::new());
+        let mut link = tar::Header::new_gnu();
+        link.set_entry_type(tar::EntryType::Symlink);
+        link.set_size(0);
+        link.set_mode(0o755);
+        tar.append_link(&mut link, "llama-b1/libggml.0.dylib", link_to)
+            .unwrap();
+        for (name, data, mode) in [
+            (
+                "llama-b1/libggml.0.22.0.dylib",
+                &b"\xcf\xfa\xed\xfelib"[..],
+                0o755,
+            ),
+            ("llama-b1/audiocpp_cli", &b"\xcf\xfa\xed\xfecli"[..], 0o644),
+            ("llama-b1/LICENSE", &b"MIT"[..], 0o644),
+        ] {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(mode);
+            header.set_cksum();
+            tar.append_data(&mut header, name, data).unwrap();
+        }
+        let raw = tar.into_inner().unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gz.write_all(&raw).unwrap();
+        gz.finish().unwrap()
+    }
+
+    #[test]
+    fn a_mac_engine_keeps_its_links_and_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let archive = dir.path().join("llama-b1-bin-macos-arm64.tar.gz");
+        std::fs::write(&archive, mac_tgz("libggml.0.22.0.dylib")).unwrap();
+        let out = dir.path().join("out");
+        extract(&archive, &out).unwrap();
+        assert_eq!(std::fs::read(out.join("LICENSE")).unwrap(), b"MIT");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let link = out.join("libggml.0.dylib");
+            assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+            assert_eq!(std::fs::read(&link).unwrap(), b"\xcf\xfa\xed\xfelib");
+            let mode =
+                |p: &str| std::fs::metadata(out.join(p)).unwrap().permissions().mode() & 0o777;
+            // a program the archive left without its bit gets it; a text file does not
+            assert_eq!(mode("audiocpp_cli") & 0o111, 0o111);
+            assert_eq!(mode("LICENSE") & 0o111, 0);
+        }
+        // Windows engines carry no links; a copy stands in when the target came before it
+        #[cfg(windows)]
+        let _ = std::fs::read(out.join("libggml.0.22.0.dylib")).unwrap();
+    }
+
+    #[test]
+    fn a_link_out_of_the_engine_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        for target in ["../../../etc/passwd", "/etc/passwd"] {
+            let archive = dir.path().join("evil.tar.gz");
+            std::fs::write(&archive, mac_tgz(target)).unwrap();
+            let err = extract(&archive, &dir.path().join("out")).unwrap_err();
+            assert!(err.to_string().contains("escapes"), "{target}: {err}");
+        }
     }
 
     #[test]
@@ -955,29 +1200,81 @@ mod tests {
         assert!(!packages.is_installed(EngineComponent::Llama, Backend::Cuda));
     }
 
+    /// The backends this system's manifest serves.
+    fn served() -> &'static [Backend] {
+        if cfg!(target_os = "macos") {
+            &[Backend::Metal, Backend::Cpu]
+        } else {
+            &[Backend::Cuda, Backend::Vulkan, Backend::Cpu]
+        }
+    }
+
+    /// The Mac's builds of whisper.cpp, stable-diffusion.cpp and FFmpeg come from Nook's own
+    /// release (.github/workflows/macos-engines.yml), pinned in engines-macos.json once it ran.
+    fn from_our_mac_release(a: &EngineArtifact) -> bool {
+        a.url.contains("/releases/download/engines-macos-")
+    }
+
     #[test]
     fn the_bundled_manifest_has_every_component() {
         let dir = tempfile::tempdir().unwrap();
         let packages =
             EnginePackages::new(Home::at(dir.path()), Arc::new(Downloader::new())).unwrap();
         for c in EngineComponent::ALL {
-            for b in Backend::ALL {
+            for &b in served() {
                 let p = packages.package_for(c, b).unwrap();
                 assert!(!p.artifacts.is_empty());
-                assert!(p
-                    .artifacts
-                    .iter()
-                    .all(|a| a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0));
+                assert!(p.artifacts.iter().all(|a| from_our_mac_release(a)
+                    || (a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0)));
             }
         }
         assert_ne!(packages.version(), "?");
+        let (backend, exe) = if cfg!(target_os = "macos") {
+            (Backend::Metal, "llama-server")
+        } else {
+            (Backend::Vulkan, "llama-server.exe")
+        };
         assert_eq!(
-            packages.server_executable(Backend::Vulkan),
+            packages.server_executable(backend),
             dir.path()
                 .join("runtime")
                 .join("bin")
-                .join("vulkan")
-                .join("llama-server.exe")
+                .join(backend.id())
+                .join(exe)
         );
+    }
+
+    /// The Mac's manifest, read on any system: every component on Metal and the processor, from
+    /// Apple silicon builds only, over HTTPS.
+    #[test]
+    fn the_mac_manifest_has_every_component_for_apple_silicon() {
+        let dir = tempfile::tempdir().unwrap();
+        let packages = EnginePackages::from_json(
+            Home::at(dir.path()),
+            Arc::new(Downloader::new()),
+            include_str!("../../../../resources/runtime/engines-macos.json"),
+        )
+        .unwrap();
+        for c in EngineComponent::ALL {
+            for b in [Backend::Metal, Backend::Cpu] {
+                let p = packages.package_for(c, b).unwrap();
+                assert!(!p.artifacts.is_empty(), "{c} on {b}");
+                for a in &p.artifacts {
+                    assert!(a.url.starts_with("https://"), "{}", a.url);
+                    let name = a.name.to_lowercase();
+                    assert!(
+                        !name.contains("win") && !name.contains("x64") && !name.contains("x86"),
+                        "not an Apple silicon build: {}",
+                        a.name
+                    );
+                    assert!(
+                        from_our_mac_release(a)
+                            || (a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0),
+                        "{} is not pinned",
+                        a.name
+                    );
+                }
+            }
+        }
     }
 }

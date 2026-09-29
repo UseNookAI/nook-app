@@ -3,6 +3,10 @@
 //! encodes (the graphics card's encoder when there is one, frames staying on the card for
 //! NVIDIA's and AMD's), the sound from Nook's pipe, and where it all goes (a Matroska file, an
 //! RTMP stream, or both at once through `tee`).
+//!
+//! On a Mac, Nook captures (ScreenCaptureKit, see `super::mac`) and hands FFmpeg the frames
+//! through a pipe as raw NV12 video ([`raw_input`]); FFmpeg encodes them with VideoToolbox, the
+//! Mac's own encoder (Apple silicon's media engine).
 
 use std::path::{Path, PathBuf};
 
@@ -37,7 +41,7 @@ pub enum Quality {
 }
 
 /// The H.264 encoders Nook tries, the best first: the graphics card's, then Windows' own, then
-/// OpenH264 on the processor.
+/// OpenH264 on the processor. A Mac has one, VideoToolbox.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Encoder {
@@ -46,9 +50,11 @@ pub enum Encoder {
     Qsv,
     MediaFoundation,
     OpenH264,
+    VideoToolbox,
 }
 
 impl Encoder {
+    #[cfg(not(target_os = "macos"))]
     pub const ALL: [Encoder; 5] = [
         Encoder::Nvenc,
         Encoder::Amf,
@@ -56,6 +62,8 @@ impl Encoder {
         Encoder::MediaFoundation,
         Encoder::OpenH264,
     ];
+    #[cfg(target_os = "macos")]
+    pub const ALL: [Encoder; 1] = [Encoder::VideoToolbox];
 
     pub fn codec(self) -> &'static str {
         match self {
@@ -64,6 +72,7 @@ impl Encoder {
             Encoder::Qsv => "h264_qsv",
             Encoder::MediaFoundation => "h264_mf",
             Encoder::OpenH264 => "libopenh264",
+            Encoder::VideoToolbox => "h264_videotoolbox",
         }
     }
 
@@ -75,6 +84,7 @@ impl Encoder {
             Encoder::Qsv => "Intel graphics",
             Encoder::MediaFoundation => "Windows' encoder",
             Encoder::OpenH264 => "the processor (OpenH264)",
+            Encoder::VideoToolbox => "the Mac's video encoder",
         }
     }
 
@@ -93,6 +103,8 @@ impl Encoder {
             Encoder::Qsv => &["-preset", "veryfast"],
             Encoder::MediaFoundation => &["-rate_control", "cbr", "-scenario", "display_remoting"],
             Encoder::OpenH264 => &["-allow_skip_frames", "1"],
+            // In real time, the processor's encoder should the media engine be busy.
+            Encoder::VideoToolbox => &["-realtime", "1", "-allow_sw", "1", "-profile:v", "high"],
         };
         let mut o: Vec<String> = own.iter().map(|s| s.to_string()).collect();
         o.extend([
@@ -223,6 +235,46 @@ fn tee_escaped(s: &str) -> String {
 /// into `target`. Progress goes to its standard output as `key=value` lines; `q` on its standard
 /// input ends it cleanly.
 pub fn args(video: &Video, audio: Option<&str>, target: &Target) -> Vec<String> {
+    let input = vec![
+        "-f".to_string(),
+        "lavfi".to_string(),
+        "-i".to_string(),
+        capture_filter(video),
+    ];
+    args_from(input, video, audio, target)
+}
+
+/// The input for frames Nook captured itself (a Mac's), from `pipe`: raw NV12 at `video`'s size,
+/// timed by the clock as they come.
+pub fn raw_input(video: &Video, pipe: &str) -> Vec<String> {
+    let (w, h) = video.size();
+    [
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "nv12",
+        "-video_size",
+        &format!("{w}x{h}"),
+        "-framerate",
+        &video.fps.to_string(),
+        "-use_wallclock_as_timestamps",
+        "1",
+        "-thread_queue_size",
+        "64",
+        "-i",
+        pipe,
+    ]
+    .map(String::from)
+    .to_vec()
+}
+
+/// [`args`] with the picture from `input` (FFmpeg's options for its first input).
+pub fn args_from(
+    input: Vec<String>,
+    video: &Video,
+    audio: Option<&str>,
+    target: &Target,
+) -> Vec<String> {
     let mut a: Vec<String> = [
         "-hide_banner",
         "-loglevel",
@@ -231,13 +283,10 @@ pub fn args(video: &Video, audio: Option<&str>, target: &Target) -> Vec<String> 
         "-progress",
         "pipe:1",
         "-y",
-        "-f",
-        "lavfi",
-        "-i",
     ]
     .map(String::from)
     .to_vec();
-    a.push(capture_filter(video));
+    a.extend(input);
     if let Some(pipe) = audio {
         a.extend(
             [

@@ -137,6 +137,53 @@ impl PathPolicy {
                 add_path(&mut policy.denied_files, &home.join(f));
             }
         }
+        // A Mac's system folders, and the stores in a Mac home's Library where keys, cookies,
+        // mail and the same browsers' and tools' secrets are (the Library itself holds Nook's own
+        // home, the scratch copies included, so it is not closed whole).
+        if cfg!(target_os = "macos") {
+            for d in [
+                "/System",
+                "/Library",
+                "/Applications",
+                "/usr",
+                "/bin",
+                "/sbin",
+                "/private/etc",
+                "/private/var/db",
+                "/private/var/root",
+            ] {
+                add(&mut policy.denied, Some(d));
+            }
+            if let Some(home) = user_home.filter(|h| !h.trim().is_empty()) {
+                let home = Path::new(home);
+                for d in ["Movies", "Public"] {
+                    policy.broad.push(absolute(&home.join(d)));
+                }
+                let library = home.join("Library");
+                for d in [
+                    "Keychains",
+                    "Cookies",
+                    "Safari",
+                    "Mail",
+                    "Messages",
+                    "Accounts",
+                    "Containers",
+                    "Group Containers",
+                    "Application Support/Google/Chrome",
+                    "Application Support/Microsoft Edge",
+                    "Application Support/BraveSoftware",
+                    "Application Support/Firefox",
+                    "Application Support/Claude",
+                    "Application Support/Code/User",
+                    "Application Support/Cursor/User",
+                    "Application Support/1Password",
+                    "Application Support/Bitwarden",
+                    "Application Support/gcloud",
+                ] {
+                    add_path(&mut policy.denied, &library.join(d));
+                }
+            }
+        }
         if let Some(app_data) = env("APPDATA").filter(|v| !v.trim().is_empty()) {
             // Roaming credential stores: Windows vaults, browser profiles, cloud CLIs, password
             // managers, and the editors' user folders (Claude Desktop config, VS Code and Cursor
@@ -196,7 +243,12 @@ impl PathPolicy {
         }
         let p = PathBuf::from(given);
         if !p.is_absolute() {
-            bail!("The path must be absolute (for example C:\\Users\\me\\project), got: {raw}");
+            let example = if cfg!(windows) {
+                "C:\\Users\\me\\project"
+            } else {
+                "/Users/me/project"
+            };
+            bail!("The path must be absolute (for example {example}), got: {raw}");
         }
         let p = absolute(&p);
         if self.is_denied(&p) {

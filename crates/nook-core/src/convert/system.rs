@@ -1,13 +1,34 @@
 //! What the converter finds on the computer: Microsoft Edge, which prints web pages to PDF, and
 //! Word, Excel and PowerPoint. Windows lists its programs under "App Paths" in the registry;
 //! Office's click-to-run installs are there too.
+//!
+//! On a Mac the printer is whichever Chromium browser is in Applications (Edge, Chrome, Brave,
+//! Chromium: the same headless printing), and Office is never driven: the Mac's Office has no
+//! automation Nook can run hidden, so Office files go through LibreOffice.
 
 use std::path::PathBuf;
 
 use super::routes::Have;
 
-/// Microsoft Edge (on every Windows 10 and 11).
+/// What the browser that prints to PDF is called in the converter's words.
+pub const PRINTER: &str = if cfg!(target_os = "macos") {
+    "Chrome or Edge"
+} else {
+    "Microsoft Edge"
+};
+/// Its short name, in the list of what a conversion goes through.
+pub const PRINTER_SHORT: &str = if cfg!(target_os = "macos") {
+    "the browser"
+} else {
+    "Edge"
+};
+
+/// The browser that prints web pages to PDF: Microsoft Edge (on every Windows 10 and 11), or on a
+/// Mac the first Chromium browser in Applications.
 pub fn edge() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        return mac_browser();
+    }
     app_path("msedge.exe").or_else(|| {
         let mut places = Vec::new();
         for var in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
@@ -19,8 +40,36 @@ pub fn edge() -> Option<PathBuf> {
     })
 }
 
-/// The Office programs on the computer.
+/// Edge, Chrome, Brave or Chromium in /Applications or ~/Applications, as they print alike.
+fn mac_browser() -> Option<PathBuf> {
+    const APPS: [(&str, &str); 4] = [
+        ("Microsoft Edge.app", "Microsoft Edge"),
+        ("Google Chrome.app", "Google Chrome"),
+        ("Brave Browser.app", "Brave Browser"),
+        ("Chromium.app", "Chromium"),
+    ];
+    let mut roots = vec![PathBuf::from("/Applications")];
+    if let Some(home) = std::env::var_os("HOME") {
+        roots.push(PathBuf::from(home).join("Applications"));
+    }
+    APPS.iter()
+        .flat_map(|(app, exe)| {
+            roots
+                .iter()
+                .map(move |r| r.join(app).join("Contents").join("MacOS").join(exe))
+        })
+        .find(|p| p.is_file())
+}
+
+/// The Office programs on the computer (none a Mac can drive).
 pub fn microsoft_office() -> Have {
+    if cfg!(target_os = "macos") {
+        return Have {
+            word: false,
+            excel: false,
+            powerpoint: false,
+        };
+    }
     Have {
         word: app_path("winword.exe").is_some(),
         excel: app_path("excel.exe").is_some(),

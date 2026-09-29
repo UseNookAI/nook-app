@@ -9,6 +9,9 @@
 //! progress (`-progress pipe:1`) is read into [`CaptureState`], which goes out on
 //! [`topic::CAPTURE`] as `{"state": ..}`; the sound's loudness as `{"levels": [..]}`, and the
 //! download as `{"install": ..}`.
+//!
+//! On a Mac, Nook captures the picture itself (ScreenCaptureKit, [`super::mac`]) and hands it to
+//! FFmpeg through a named pipe (a FIFO), as it does the sound there.
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -143,6 +146,8 @@ struct Segment {
     kill: CancellationToken,
     part: Option<PathBuf>,
     progress: Arc<Mutex<Progress>>,
+    /// What feeds FFmpeg its picture on a Mac (the capture and its writer), kept until FFmpeg ends.
+    feed: Option<Box<dyn std::any::Any + Send>>,
 }
 
 struct Session {
@@ -177,6 +182,7 @@ pub struct CaptureService {
     /// Recordings made in this run, which the page may open.
     saved: Mutex<Vec<PathBuf>>,
     stopping: CancellationToken,
+    #[cfg_attr(not(windows), allow(dead_code))]
     next: AtomicU64,
     me: Weak<CaptureService>,
 }
@@ -241,7 +247,7 @@ impl CaptureService {
         let exe = packages.executable(
             EngineComponent::Ffmpeg,
             Backend::Cpu,
-            &["bin/ffmpeg.exe", "ffmpeg.exe"],
+            EngineComponent::Ffmpeg.executables(),
         );
         exe.is_file().then_some(exe)
     }
@@ -307,6 +313,11 @@ impl CaptureService {
             encoder: Encoder::Nvenc,
             kbps: 1_000,
         };
+        // A Mac's picture comes from ScreenCaptureKit, with no FFmpeg in between.
+        if cfg!(target_os = "macos") {
+            let _ = ffmpeg;
+            return Self::mac_preview(source.clone(), video.size()).await;
+        }
         let filter = format!("{},hwdownload,format=bgra", plan::capture_filter(&video));
         let mut cmd = crate::process::command(&ffmpeg);
         cmd.args(["-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i"])
@@ -322,6 +333,18 @@ impl CaptureService {
             );
         }
         Ok(out.stdout)
+    }
+
+    #[cfg(target_os = "macos")]
+    async fn mac_preview(source: Source, size: (u32, u32)) -> Result<Vec<u8>> {
+        tokio::task::spawn_blocking(move || super::mac::preview(&source, size))
+            .await
+            .map_err(|e| anyhow!("{e}"))?
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    async fn mac_preview(_source: Source, _size: (u32, u32)) -> Result<Vec<u8>> {
+        bail!("No picture came.")
     }
 
     /// [`CaptureService::preview`] as a `data:` address the page shows as it is.
@@ -389,8 +412,8 @@ impl CaptureService {
         if guard.is_some() {
             bail!("A recording is already running.");
         }
-        if !cfg!(windows) {
-            bail!("Screen recording works on Windows.");
+        if !cfg!(windows) && !cfg!(target_os = "macos") {
+            bail!("Screen recording works on Windows and macOS.");
         }
         if !options.record && options.stream.is_none() {
             bail!("Choose to record, to stream, or both.");
@@ -434,6 +457,10 @@ impl CaptureService {
                     && !s.server.trim().starts_with("srt://")
                 {
                     bail!("The stream's server address starts with rtmp://, rtmps:// or srt://.");
+                }
+                // A Mac's FFmpeg is built without SRT (it would need a library of its own).
+                if cfg!(target_os = "macos") && s.server.trim().starts_with("srt://") {
+                    bail!("The Mac streams over RTMP or RTMPS: SRT is not there yet.");
                 }
                 (
                     Some(plan::stream_url(&s.server, &s.key)),
@@ -590,7 +617,26 @@ impl CaptureService {
             ),
             None => None,
         };
-        let args = plan::args(&session.video, pipe.as_deref(), &target);
+        #[cfg(not(target_os = "macos"))]
+        let (args, feed) = (
+            plan::args(&session.video, pipe.as_deref(), &target),
+            None::<Box<dyn std::any::Any + Send>>,
+        );
+        #[cfg(target_os = "macos")]
+        let (args, feed) = {
+            let video = session.video.clone();
+            let (fifo, feed) = tokio::task::spawn_blocking(move || {
+                super::mac::video_feed(&video, &std::env::temp_dir(), START_TIMEOUT)
+            })
+            .await
+            .map_err(|e| Failed::Other(e.to_string()))?
+            .map_err(|e| Failed::Other(format!("{e:#}")))?;
+            let input = plan::raw_input(&session.video, &fifo.display().to_string());
+            (
+                plan::args_from(input, &session.video, pipe.as_deref(), &target),
+                Some(Box::new(feed) as Box<dyn std::any::Any + Send>),
+            )
+        };
         let mut cmd = crate::process::command(&session.ffmpeg);
         cmd.args(&args)
             .stdin(std::process::Stdio::piped())
@@ -703,6 +749,7 @@ impl CaptureService {
                 kill,
                 part,
                 progress,
+                feed,
             }),
             ended = exited.wait_for(|e| e.is_some()) => {
                 let said = ended.map(|e| e.clone().unwrap_or_default()).unwrap_or_default();
@@ -757,9 +804,38 @@ impl CaptureService {
         Ok(name)
     }
 
-    #[cfg(not(windows))]
+    /// A Mac's pipe for the sound: a FIFO, its writer waiting on a thread of its own for FFmpeg
+    /// to open it, the mixer sent there from then.
+    #[cfg(target_os = "macos")]
+    fn audio_pipe(&self, mixer: &Mixer) -> Result<String> {
+        use std::io::Write;
+        let fifo = super::mac::fifo(&std::env::temp_dir(), "f32")?;
+        let attacher = mixer.attacher();
+        let path = fifo.clone();
+        std::thread::Builder::new()
+            .name("nook-capture-sound-pipe".into())
+            .spawn(move || {
+                let never = AtomicBool::new(false);
+                let opened = super::mac::open_writer(&path, START_TIMEOUT, &never);
+                let _ = std::fs::remove_file(&path);
+                let Some(mut pipe) = opened else {
+                    return;
+                };
+                let (tx, mut rx) = tokio::sync::mpsc::channel::<Vec<f32>>(512);
+                attacher.attach(tx);
+                while let Some(chunk) = rx.blocking_recv() {
+                    if pipe.write_all(&audio::as_bytes(&chunk)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .context("Could not start the sound's pipe")?;
+        Ok(fifo.display().to_string())
+    }
+
+    #[cfg(not(any(windows, target_os = "macos")))]
     fn audio_pipe(&self, _mixer: &Mixer) -> Result<String> {
-        bail!("Screen recording works on Windows.")
+        bail!("Screen recording works on Windows and macOS.")
     }
 
     /// Ends the running part: `q` on FFmpeg's input, which finishes its file; killed if it does
@@ -783,6 +859,8 @@ impl CaptureService {
             let _ = tokio::time::timeout(Duration::from_secs(5), exited.wait_for(|e| e.is_some()))
                 .await;
         }
+        // The picture's capture ends once FFmpeg has all it will take.
+        segment.feed.take();
         let p = *segment.progress.lock();
         p
     }
@@ -916,17 +994,21 @@ impl CaptureService {
     pub fn stream_key(&self, service: &str) -> Option<String> {
         let name = key_setting(service)?;
         let sealed = self.settings.get(&name).filter(|s| !s.trim().is_empty())?;
-        secret::unprotect(&sealed)
+        secret::read(&name, &sealed)
             .map_err(|e| tracing::warn!("The kept stream key for {service} is unreadable: {e:#}"))
             .ok()
     }
 
-    /// Keeps `key` for `service`, encrypted for this Windows account; None forgets it.
+    /// Keeps `key` for `service`, encrypted for this Windows account (in a Mac's keychain); None
+    /// forgets it.
     pub fn keep_stream_key(&self, service: &str, key: Option<&str>) -> Result<()> {
         let name = key_setting(service).ok_or_else(|| anyhow!("No such streaming service."))?;
         match key.map(str::trim).filter(|k| !k.is_empty()) {
-            Some(k) => self.settings.set(&name, secret::protect(k)?),
-            None => self.settings.set(&name, ""),
+            Some(k) => self.settings.set(&name, secret::keep(&name, k)?),
+            None => {
+                secret::forget(&name);
+                self.settings.set(&name, "")
+            }
         }
     }
 

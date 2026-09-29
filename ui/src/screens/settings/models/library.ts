@@ -5,6 +5,7 @@
  */
 import { UNSUPPORTED, type Catalog, type CatalogModel, type DownloadsState, type LocalModel } from "../../../api/models";
 import { fastEnoughToWork, type SpeedProbeResult } from "../../../api/runtime";
+import { gpuMemory } from "../../../shell/platform";
 
 /**
  * common/dto/AiModelDto.java, as NookAiService built it for the Library. Every model is in Nook's
@@ -150,7 +151,7 @@ export function kindText(model: AiModelDto): string | null {
 /** The card's line of facts: "4.9 GB · Text · needs 6 GB VRAM". */
 export function metaFor(model: AiModelDto): string {
   const vram = model.requiredVramInGB;
-  return [sizeText(model.sizeInGB), kindText(model), vram != null && vram > 0 ? `needs ${vram} GB VRAM` : null]
+  return [sizeText(model.sizeInGB), kindText(model), vram != null && vram > 0 ? `needs ${vram} GB ${gpuMemory}` : null]
     .filter((s): s is string => s != null)
     .join(" · ");
 }

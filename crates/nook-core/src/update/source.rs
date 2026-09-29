@@ -42,6 +42,13 @@ pub const DEFAULT_BASE_URL: &str = match option_env!("NOOK_RS_UPDATE_BASE") {
 };
 /// The User-Agent every update request carries.
 pub(crate) const USER_AGENT: &str = "Nook";
+/// The folder under a channel with this platform's manifest: none for Windows (the channel's own
+/// `latest.json`), `macos-arm64` for Apple silicon Macs (`nook-release manifest --platform`).
+pub const PLATFORM_DIR: Option<&str> = if cfg!(target_os = "macos") {
+    Some("macos-arm64")
+} else {
+    None
+};
 
 /// Where the update channel is kept: the `UPDATE_CHANNEL` setting. A trait so the updater can be
 /// built over the app's [`Settings`] however the app holds them, and over a fake in tests.
@@ -162,9 +169,14 @@ impl UpdateSource {
         }
     }
 
-    /// The manifest's URL for a channel.
+    /// The manifest's URL for a channel: the channel's own `latest.json` for the Windows installer,
+    /// where every Nook before the Mac's reads it, and a folder of the platform's under it for a
+    /// Mac ([`PLATFORM_DIR`]).
     pub fn manifest_url(&self, channel: &str) -> String {
-        format!("{}/{}/latest.json", self.base_url, channel)
+        match PLATFORM_DIR {
+            Some(platform) => format!("{}/{}/{platform}/latest.json", self.base_url, channel),
+            None => format!("{}/{}/latest.json", self.base_url, channel),
+        }
     }
 
     /// Asks the channel for its latest build. None when there is none newer, when nothing is

@@ -3,7 +3,7 @@
  * Everything is a no-op in a plain browser (`inTauri` false), so `npm run dev` works.
  */
 import { useEffect, useState } from "react";
-import { inTauri } from "../api/ipc";
+import { inTauri, on } from "../api/ipc";
 
 type TauriWindow = import("@tauri-apps/api/window").Window;
 
@@ -86,8 +86,10 @@ export function useIsMaximized(): boolean {
 }
 
 /**
- * Routes every close of the window (Alt+F4, the taskbar) through `onClose` instead of closing at
- * once, so the shell can ask first when something is running. `onClose` decides and quits.
+ * Routes every close of the window (Alt+F4, the taskbar; on a Mac the red light, Cmd+W, and Quit
+ * from the menu or the Dock, which the shell hands over as "quit-requested") through `onClose`
+ * instead of closing at once, so the shell can ask first when something is running. `onClose`
+ * decides and quits.
  */
 export function useCloseRequest(onClose: () => void): void {
   useEffect(() => {
@@ -95,6 +97,7 @@ export function useCloseRequest(onClose: () => void): void {
     if (!w) return;
     let unlisten: (() => void) | null = null;
     let cancelled = false;
+    const offQuit = on("quit-requested", () => onClose());
     w.then(async (window) => {
       const off = await window.onCloseRequested((e) => {
         e.preventDefault();
@@ -105,6 +108,7 @@ export function useCloseRequest(onClose: () => void): void {
     });
     return () => {
       cancelled = true;
+      offQuit();
       unlisten?.();
     };
   }, [onClose]);

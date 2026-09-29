@@ -1,7 +1,8 @@
 //! The per-user Nook home and the layout under it. Ports `AppHome.kt` and `runtime/RuntimePaths.java`.
 //!
 //! This app has its own identity beside the installed (Kotlin) Nook: its home is
-//! `%LOCALAPPDATA%\Nook-rs` (`~/.nook-rs` elsewhere), overridable with `NOOK_RS_HOME`. It never
+//! `%LOCALAPPDATA%\Nook-rs` on Windows, `~/Library/Application Support/Nook` on macOS (where there
+//! never was a Kotlin Nook) and `~/.nook-rs` elsewhere, overridable with `NOOK_RS_HOME`. It never
 //! writes to the installed Nook's home; it may read that home's downloaded models (see
 //! [`Home::shared_models_dir`]), and imports its sessions, worker files and engines once
 //! ([`crate::migrate`]).
@@ -26,8 +27,11 @@ use anyhow::{Context, Result};
 pub const HOME_ENV: &str = "NOOK_RS_HOME";
 /// Environment variable naming a read-only models folder to reuse; empty turns reuse off.
 pub const SHARED_MODELS_ENV: &str = "NOOK_RS_SHARED_MODELS";
-/// Folder name under %LOCALAPPDATA%.
+/// Folder name under %LOCALAPPDATA% (Windows) or ~/Library/Application Support (macOS).
+#[cfg(not(target_os = "macos"))]
 pub const HOME_DIR_NAME: &str = "Nook-rs";
+#[cfg(target_os = "macos")]
+pub const HOME_DIR_NAME: &str = "Nook";
 
 #[derive(Clone, Debug)]
 pub struct Home {
@@ -35,19 +39,31 @@ pub struct Home {
 }
 
 impl Home {
-    /// Resolves the home from `NOOK_RS_HOME`, else `%LOCALAPPDATA%\Nook-rs`, else `~/.nook-rs`,
+    /// Resolves the home from `NOOK_RS_HOME`, else the platform's place ([`Home::default_root`]),
     /// and creates `data` and `logs`.
     pub fn resolve() -> Result<Home> {
         let root = match std::env::var(HOME_ENV) {
             Ok(v) if !v.trim().is_empty() => PathBuf::from(v.trim()),
-            _ => match std::env::var("LOCALAPPDATA") {
-                Ok(v) if !v.trim().is_empty() => PathBuf::from(v).join(HOME_DIR_NAME),
-                _ => user_home().join(".nook-rs"),
-            },
+            _ => Home::default_root(),
         };
         let home = Home::at(root);
         home.create_basics()?;
         Ok(home)
+    }
+
+    /// `~/Library/Application Support/Nook` on macOS; `%LOCALAPPDATA%\Nook-rs` elsewhere, else
+    /// `~/.nook-rs`.
+    pub fn default_root() -> PathBuf {
+        if cfg!(target_os = "macos") {
+            return user_home()
+                .join("Library")
+                .join("Application Support")
+                .join(HOME_DIR_NAME);
+        }
+        match std::env::var("LOCALAPPDATA") {
+            Ok(v) if !v.trim().is_empty() => PathBuf::from(v).join(HOME_DIR_NAME),
+            _ => user_home().join(".nook-rs"),
+        }
     }
 
     /// A home at an explicit path (tests). Creates nothing.

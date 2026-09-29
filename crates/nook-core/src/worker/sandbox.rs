@@ -33,6 +33,16 @@
 //!
 //! `NOOK_UNSANDBOXED_CHECKS=1` in Nook's own environment runs checks as before, for a toolchain
 //! that cannot work this way; nothing a repository contains can turn the sandbox off.
+//!
+//! On a Mac the same limits come from macOS's own sandbox (Seatbelt, through `sandbox-exec`, as
+//! other coding tools run their commands there): [`seatbelt`] starts each check under a profile
+//! ([`seatbelt_profile`]) that lets it write only in its workspace (the scratch copy and its
+//! caches, under `~/Library/Caches/Nook/checks`) and the terminal devices, read nothing in the
+//! person's home but its workspace and the toolchains on its PATH ([`toolchain_dirs`], and the
+//! rustup, pyenv, nvm and like homes those need), look up but not read the rest, touch no
+//! clipboard, send no Apple Events (so it cannot drive other apps) and signal nothing outside its
+//! own sandbox. Its environment is the allowlist of Unix names in [`INHERITED`]; the network stays
+//! open, as on Windows.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -42,6 +52,46 @@ use anyhow::Result;
 /// What of Nook's environment a check inherits: where Windows and the toolchains are and how
 /// the computer is set up. Anything else (a token, a key, a password a person set for other
 /// programs) stays with Nook.
+#[cfg(target_os = "macos")]
+pub const INHERITED: &[&str] = &[
+    "PATH",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "LC_MESSAGES",
+    "TERM",
+    "TZ",
+    "__CF_USER_TEXT_ENCODING",
+    "RUSTUP_HOME",
+    "RUSTUP_TOOLCHAIN",
+    "JAVA_HOME",
+    "GOROOT",
+    "DOTNET_ROOT",
+    "ANDROID_HOME",
+    "ANDROID_SDK_ROOT",
+    "PYTHONPATH",
+    "PYTHONHOME",
+    "PYENV_ROOT",
+    "PYENV_VERSION",
+    "NODE_PATH",
+    "NVM_DIR",
+    "NVM_BIN",
+    "VOLTA_HOME",
+    "BUN_INSTALL",
+    "DENO_INSTALL",
+    "SDKMAN_DIR",
+    "HOMEBREW_PREFIX",
+    "HOMEBREW_CELLAR",
+    "DEVELOPER_DIR",
+    "SDKROOT",
+    "MACOSX_DEPLOYMENT_TARGET",
+    "CC",
+    "CXX",
+];
+#[cfg(not(target_os = "macos"))]
 pub const INHERITED: &[&str] = &[
     "PATH",
     "PATHEXT",
@@ -207,10 +257,15 @@ fn personal(dir: &Path, profile: &Path) -> bool {
                     "saved games",
                     "searches",
                     "appdata",
+                    // a Mac's
+                    "movies",
+                    "library",
+                    "public",
+                    "applications",
                 ]
                 .contains(one)
         }
-        ["appdata", _] => true,
+        ["appdata", _] | ["library", _] => true,
         ["appdata", "local", "programs" | "microsoft"] | ["appdata", "roaming", "microsoft"] => {
             true
         }
@@ -237,6 +292,11 @@ pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<Pat
         l.starts_with(&home) && l.trim_end_matches('\\').len() >= home.len()
     };
     let program_folder = |d: &Path| {
+        // On a Mac a toolchain's bin sits in its own folder beside lib and share (a Node from
+        // nvm, a Python from pyenv): the parent is the toolchain's whenever it is not a person's.
+        if cfg!(unix) {
+            return d.join("lib").is_dir() || d.join("libexec").is_dir();
+        }
         std::fs::read_dir(d).is_ok_and(|entries| {
             entries.flatten().any(|e| {
                 e.file_type().is_ok_and(|t| t.is_file())
@@ -281,19 +341,48 @@ pub fn toolchain_dirs(env: &BTreeMap<String, String>, profile: &Path) -> Vec<Pat
     if inside(&rustup) && rustup.is_dir() {
         dirs.push(rustup);
     }
+    // A Mac's version managers keep the toolchains their shims start in homes of their own.
+    if cfg!(target_os = "macos") {
+        for (var, default) in [
+            ("PYENV_ROOT", ".pyenv"),
+            ("NVM_DIR", ".nvm"),
+            ("VOLTA_HOME", ".volta"),
+            ("BUN_INSTALL", ".bun"),
+            ("SDKMAN_DIR", ".sdkman"),
+        ] {
+            let home = get(var)
+                .map(PathBuf::from)
+                .unwrap_or_else(|| profile.join(default));
+            if inside(&home) && home.is_dir() {
+                dirs.push(home);
+            }
+        }
+    }
     dirs.sort();
     dirs.dedup();
     dirs
 }
 
-/// Whether checks run sandboxed: always, unless Nook was started with `NOOK_UNSANDBOXED_CHECKS=1`.
+/// Whether checks run sandboxed: always (on Windows and macOS), unless Nook was started with
+/// `NOOK_UNSANDBOXED_CHECKS=1`.
 pub fn enabled() -> bool {
-    cfg!(windows) && std::env::var("NOOK_UNSANDBOXED_CHECKS").map_or(true, |v| v.trim() != "1")
+    (cfg!(windows) || cfg!(target_os = "macos"))
+        && std::env::var("NOOK_UNSANDBOXED_CHECKS").map_or(true, |v| v.trim() != "1")
 }
 
 /// Where the checks' caches live: `%USERPROFILE%\AppData\LocalLow\Nook\checks`, a folder low
-/// processes may write to by Windows' own label, a folder in it for each workspace.
+/// processes may write to by Windows' own label, a folder in it for each workspace. On a Mac,
+/// `~/Library/Caches/Nook/checks`.
 pub fn caches() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Library")
+                .join("Caches")
+                .join("Nook")
+                .join("checks");
+        }
+    }
     local_low().join("Nook").join("checks")
 }
 
@@ -318,35 +407,53 @@ const CACHE_FOLDERS: [&str; 11] = [
 /// caches that would otherwise be written in the person's profile go to the workspace's own
 /// caches. Only what `base` does not set already.
 pub fn environment(base: &BTreeMap<String, String>, ws: &Workspace) -> Vec<(String, String)> {
-    let at = |p: &str| ws.caches.join(p).display().to_string();
-    let wanted = [
-        ("TEMP", at("tmp")),
-        ("TMP", at("tmp")),
-        ("npm_config_cache", at("npm")),
-        ("YARN_CACHE_FOLDER", at("yarn")),
-        ("GRADLE_USER_HOME", at("gradle")),
-        ("GOCACHE", at("go\\cache")),
-        ("GOMODCACHE", at("go\\mod")),
-        ("GOPATH", at("go\\path")),
-        ("PIP_CACHE_DIR", at("pip")),
-        ("XDG_CACHE_HOME", at("cache")),
-        ("NUGET_PACKAGES", at("nuget")),
-        ("DOTNET_CLI_HOME", at("dotnet")),
-        ("CARGO_HOME", at("cargo")),
+    let at = |parts: &[&str]| {
+        parts
+            .iter()
+            .fold(ws.caches.clone(), |p, part| p.join(part))
+            .display()
+            .to_string()
+    };
+    let mut wanted = vec![
+        ("TEMP", at(&["tmp"])),
+        ("TMP", at(&["tmp"])),
+        ("npm_config_cache", at(&["npm"])),
+        ("YARN_CACHE_FOLDER", at(&["yarn"])),
+        ("GRADLE_USER_HOME", at(&["gradle"])),
+        ("GOCACHE", at(&["go", "cache"])),
+        ("GOMODCACHE", at(&["go", "mod"])),
+        ("GOPATH", at(&["go", "path"])),
+        ("PIP_CACHE_DIR", at(&["pip"])),
+        ("XDG_CACHE_HOME", at(&["cache"])),
+        ("NUGET_PACKAGES", at(&["nuget"])),
+        ("DOTNET_CLI_HOME", at(&["dotnet"])),
+        ("CARGO_HOME", at(&["cargo"])),
         // A home of the checks' own: Git and the like look there for the person's settings.
-        ("HOME", at("home")),
-        ("npm_config_userconfig", at("home\\.npmrc")),
+        ("HOME", at(&["home"])),
+        ("npm_config_userconfig", at(&["home", ".npmrc"])),
     ];
+    // Temporary files, which always move out of the person's own temp folder (a low process on
+    // Windows cannot write it, a Mac's sandbox lets it write nowhere else).
+    let mut moved = vec![("TEMP", at(&["tmp"])), ("TMP", at(&["tmp"]))];
+    if cfg!(target_os = "macos") {
+        moved.push(("TMPDIR", at(&["tmp"])));
+        // With HOME moved, rustup's and pyenv's shims would look for their toolchains in the
+        // checks' own home: they are told where the person's are.
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            for (var, dir) in [("RUSTUP_HOME", ".rustup"), ("PYENV_ROOT", ".pyenv")] {
+                let dir = home.join(dir);
+                if dir.is_dir() {
+                    wanted.push((var, dir.display().to_string()));
+                }
+            }
+        }
+    }
     let set = |k: &str| base.keys().any(|b| b.eq_ignore_ascii_case(k));
+    let moving: Vec<&str> = moved.iter().map(|(k, _)| *k).collect();
     wanted
         .into_iter()
-        .filter(|(k, _)| !set(k))
-        // TEMP and TMP always move: a low process cannot write the profile's own temp folder.
-        .chain(
-            [("TEMP", at("tmp")), ("TMP", at("tmp"))]
-                .into_iter()
-                .filter(|(k, _)| set(k)),
-        )
+        .filter(|(k, _)| !set(k) && !moving.contains(k))
+        .chain(moved)
         .map(|(k, v)| (k.to_string(), v))
         .collect()
 }
@@ -378,13 +485,21 @@ pub fn prepare(ws: &Workspace) -> Result<()> {
         }
     }
     #[cfg(not(windows))]
-    let _ = ws;
+    {
+        static PREPARING: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+        let _one = PREPARING.lock();
+        sweep_caches(&caches(), &ws.caches);
+        std::fs::create_dir_all(&ws.caches)?;
+        std::fs::write(ws.caches.join(".used"), b"")?;
+        for sub in CACHE_FOLDERS {
+            std::fs::create_dir_all(ws.caches.join(sub))?;
+        }
+    }
     Ok(())
 }
 
 /// Removes, from the checks' caches in `root`, the folders all workspaces shared before each had
 /// its own, and workspaces' caches unused for [`CACHES_KEPT_DAYS`], but never `keep`.
-#[cfg_attr(not(windows), allow(dead_code))]
 fn sweep_caches(root: &Path, keep: &Path) {
     let Ok(entries) = std::fs::read_dir(root) else {
         return;
@@ -408,6 +523,82 @@ fn sweep_caches(root: &Path, keep: &Path) {
             let _ = std::fs::remove_dir_all(&path);
         }
     }
+}
+
+/// The profile a Mac's check runs under (Seatbelt's language), its paths given as parameters
+/// (`sandbox-exec -D NAME=path`, so no path is ever quoted into it): `WORKSPACE`, `CACHES`,
+/// `HOME` and `TOOLCHAIN0` to `TOOLCHAIN<n-1>` for `toolchains` of them.
+pub fn seatbelt_profile(toolchains: usize) -> String {
+    let mut readable =
+        String::from("    (subpath (param \"WORKSPACE\"))\n    (subpath (param \"CACHES\"))\n");
+    for i in 0..toolchains {
+        readable.push_str(&format!("    (subpath (param \"TOOLCHAIN{i}\"))\n"));
+    }
+    format!(
+        r#"(version 1)
+(allow default)
+; Writes: the scratch copy, its caches and the terminal devices, nothing else.
+(deny file-write*)
+(allow file-write*
+    (subpath (param "WORKSPACE"))
+    (subpath (param "CACHES"))
+    (literal "/dev/null")
+    (literal "/dev/zero")
+    (literal "/dev/dtracehelper")
+    (regex #"^/dev/tty")
+    (regex #"^/dev/fd/"))
+; Reads: nothing in the person's home but the workspace and the toolchains; names may be looked up.
+(deny file-read* (subpath (param "HOME")))
+(allow file-read-metadata (subpath (param "HOME")))
+(allow file-read*
+{readable})
+; No clipboard, no driving other apps, no signals beyond its own sandbox.
+(deny mach-lookup (global-name "com.apple.pasteboard.1"))
+(deny appleevent-send)
+(deny signal)
+(allow signal (target same-sandbox))
+"#
+    )
+}
+
+/// What runs a Mac's check under its sandbox: `/usr/bin/sandbox-exec`, its arguments (the
+/// profile, its paths, then the command) and the whole environment the check gets (Nook's
+/// [`INHERITED`] part, the command's own `env`, then the workspace's caches). Prepares the
+/// workspace first.
+#[cfg(target_os = "macos")]
+pub fn seatbelt(
+    command: &[String],
+    cwd: &Path,
+    env: &std::collections::HashMap<String, String>,
+) -> Result<(String, Vec<String>, BTreeMap<String, String>)> {
+    use anyhow::Context;
+    let real = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let ws = Workspace::of(&real(cwd));
+    prepare(&ws)?;
+    let mut all = inherited();
+    all.extend(env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    for (k, v) in environment(&all, &ws) {
+        all.insert(k, v);
+    }
+    let home = PathBuf::from(std::env::var_os("HOME").context("no HOME")?);
+    let toolchains = toolchain_dirs(&all, &home);
+    let mut args = vec![
+        "-p".to_string(),
+        seatbelt_profile(toolchains.len()),
+        "-D".into(),
+        format!("WORKSPACE={}", real(&ws.dir).display()),
+        "-D".into(),
+        format!("CACHES={}", real(&ws.caches).display()),
+        "-D".into(),
+        format!("HOME={}", real(&home).display()),
+    ];
+    for (i, dir) in toolchains.iter().enumerate() {
+        args.push("-D".into());
+        args.push(format!("TOOLCHAIN{i}={}", real(dir).display()));
+    }
+    args.push("--".into());
+    args.extend(command.iter().cloned());
+    Ok(("/usr/bin/sandbox-exec".to_string(), args, all))
 }
 
 #[cfg(windows)]
@@ -1679,5 +1870,84 @@ mod tests {
         assert!(app.ends_with("cmd.exe"));
         assert_eq!(line, r#"cmd.exe /d /e:ON /v:OFF /s /c "C:\n\npm.cmd test""#);
         assert!(imp::command_line(Path::new(r"C:\n\npm.cmd"), &["%PATH%".into()]).is_err());
+    }
+}
+
+/// What every system's sandbox shares: which folders are a person's own, the Mac's profile.
+#[cfg(test)]
+mod shared_tests {
+    use super::*;
+
+    #[test]
+    fn a_mac_homes_own_folders_are_personal() {
+        let home = Path::new("/Users/ann");
+        for own in [
+            "/Users/ann",
+            "/Users/ann/Library",
+            "/Users/ann/Library/Keychains",
+            "/Users/ann/Library/Application Support",
+            "/Users/ann/Movies",
+            "/Users/ann/.ssh",
+            "/Users/ann/Documents",
+        ] {
+            assert!(personal(Path::new(own), home), "{own}");
+        }
+        for tool in [
+            "/Users/ann/.cargo/bin",
+            "/Users/ann/.nvm/versions/node/v22.0.0/bin",
+            "/Users/ann/Library/Python/3.12/bin",
+        ] {
+            assert!(!personal(Path::new(tool), home), "{tool}");
+        }
+    }
+
+    #[test]
+    fn the_mac_profile_names_every_path_it_is_given_and_nothing_else() {
+        let profile = seatbelt_profile(2);
+        assert!(profile.starts_with("(version 1)\n(allow default)\n"));
+        for p in ["WORKSPACE", "CACHES", "HOME", "TOOLCHAIN0", "TOOLCHAIN1"] {
+            assert!(
+                profile.contains(&format!("(param \"{p}\")")),
+                "{p}: {profile}"
+            );
+        }
+        assert!(!profile.contains("TOOLCHAIN2"));
+        // writes denied, then only the workspace's allowed; the home unreadable but for names
+        let deny_writes = profile.find("(deny file-write*)").unwrap();
+        let allow_writes = profile.find("(allow file-write*").unwrap();
+        let deny_home = profile
+            .find("(deny file-read* (subpath (param \"HOME\")))")
+            .unwrap();
+        let allow_reads = profile.find("(allow file-read*\n").unwrap();
+        assert!(
+            deny_writes < allow_writes && deny_home < allow_reads,
+            "{profile}"
+        );
+        assert!(profile.contains("(deny appleevent-send)"));
+        assert!(profile.contains("com.apple.pasteboard.1"));
+        // the parentheses balance, or sandbox-exec refuses it
+        let depth = profile.chars().fold(0i32, |d, c| match c {
+            '(' => d + 1,
+            ')' => d - 1,
+            _ => d,
+        });
+        assert_eq!(depth, 0, "{profile}");
+    }
+
+    #[test]
+    fn caches_and_temporary_files_move_to_the_workspace() {
+        let ws = Workspace::of(Path::new("/tmp/nook/code/s1"));
+        let mut base = BTreeMap::new();
+        base.insert("TEMP".to_string(), "/elsewhere".to_string());
+        let env: BTreeMap<String, String> = environment(&base, &ws).into_iter().collect();
+        let under = |k: &str| Path::new(&env[k]).starts_with(&ws.caches);
+        assert!(under("TEMP") && under("TMP") && under("HOME") && under("CARGO_HOME"));
+        assert_eq!(
+            Path::new(&env["GOCACHE"]),
+            ws.caches.join("go").join("cache")
+        );
+        if cfg!(target_os = "macos") {
+            assert!(under("TMPDIR"));
+        }
     }
 }

@@ -7,6 +7,7 @@ import { Button } from "../components/Button";
 import { Dialog } from "../components/Dialog";
 import { ProgressBar } from "../components/Spinner";
 import "./shell.css";
+import { isMac } from "./platform";
 
 /** The update dialog's sentence: the build, its notes when it has any, and what happens next. */
 export function updateOffer(release: Release | null): string {
@@ -43,7 +44,9 @@ export function UpdateDialog({
       }
     >
       {downloading
-        ? "Please wait while the new version of Nook is being downloaded. The installer will launch automatically once finished."
+        ? isMac
+          ? "Please wait while the new version of Nook is being downloaded. Nook will close, update itself and open again once finished."
+          : "Please wait while the new version of Nook is being downloaded. The installer will launch automatically once finished."
         : updateOffer(status.latestVersionInfo)}
       {downloading && (
         <>

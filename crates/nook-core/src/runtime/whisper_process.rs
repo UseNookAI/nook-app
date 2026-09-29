@@ -319,6 +319,7 @@ pub(crate) mod tests {
 
     /// A fake whisper-server: `/` answers, `/inference` echoes what it was sent. A WAV whose
     /// bytes are `broken` gets HTTP 500.
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn fake_whisper_router(seen: Arc<Mutex<Vec<String>>>) -> Router {
         Router::new().route("/", get(|| async { "whisper" })).route(
             "/inference",
@@ -349,6 +350,7 @@ pub(crate) mod tests {
         )
     }
 
+    #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) async fn fake_whisper_server(port: u16, seen: Arc<Mutex<Vec<String>>>) {
         let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
             .await

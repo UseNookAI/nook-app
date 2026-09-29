@@ -670,6 +670,8 @@ mod tests {
         assert!(r.setup_completed, "a session file says the app was used");
     }
 
+    /// Windows paths: there only was a Kotlin Nook to come from on Windows.
+    #[cfg(windows)]
     #[test]
     fn only_a_scratch_copy_in_the_old_temp_folder_moves() {
         let old = Path::new(r"C:\Users\a\AppData\Local\Nook\tmp\code");

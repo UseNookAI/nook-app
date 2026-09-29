@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged by Tauri into the Mac app's Info.plist (Windows builds ignore it): what macOS shows when
+     Nook first asks for the microphone, the screen or the computer's sound. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Nook listens to your voice prompts and recordings on this Mac. Nothing leaves it.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Nook records the Mac's own sound into your screen recordings. Nothing leaves this Mac.</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Nook records or streams the screen, window or area you choose.</string>
+  <key>LSApplicationCategoryType</key>
+  <string>public.app-category.developer-tools</string>
+</dict>
+</plist>

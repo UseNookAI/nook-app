@@ -1,9 +1,61 @@
 //! A stream key kept on this computer: encrypted with Windows' data protection (DPAPI) for the
 //! person's account, so the settings file holds nothing another account, or a copy of the file
-//! on another computer, could read.
+//! on another computer, could read. On a Mac the key goes into the person's login keychain
+//! instead, and the settings file only says it is there.
 
 use anyhow::{Context, Result};
 use base64::Engine as _;
+
+/// What the settings hold for a key a Mac keeps in its keychain.
+pub const IN_KEYCHAIN: &str = "keychain";
+/// The keychain's service name for Nook's keys.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+const KEYCHAIN_SERVICE: &str = "ai.nook.app";
+
+/// Keeps `plain` for `name` (the setting it belongs to) and returns what that setting stores:
+/// the key encrypted for this Windows account, or on a Mac [`IN_KEYCHAIN`].
+pub fn keep(name: &str, plain: &str) -> Result<String> {
+    #[cfg(target_os = "macos")]
+    {
+        security_framework::passwords::set_generic_password(
+            KEYCHAIN_SERVICE,
+            name,
+            plain.as_bytes(),
+        )
+        .context("The keychain did not take the key")?;
+        Ok(IN_KEYCHAIN.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        protect(plain)
+    }
+}
+
+/// What [`keep`] kept for `name`, from the setting's `stored` value.
+pub fn read(name: &str, stored: &str) -> Result<String> {
+    if stored.trim() == IN_KEYCHAIN {
+        #[cfg(target_os = "macos")]
+        {
+            let bytes = security_framework::passwords::get_generic_password(KEYCHAIN_SERVICE, name)
+                .context("The keychain does not have the key")?;
+            return String::from_utf8(bytes).context("The saved key is not text");
+        }
+        #[cfg(not(target_os = "macos"))]
+        anyhow::bail!("The key was kept in a Mac's keychain");
+    }
+    let _ = name;
+    unprotect(stored)
+}
+
+/// Forgets what [`keep`] kept for `name` (a Mac's keychain item; the setting is emptied by the
+/// caller).
+pub fn forget(name: &str) {
+    #[cfg(target_os = "macos")]
+    let _ = security_framework::passwords::delete_generic_password(KEYCHAIN_SERVICE, name);
+    #[cfg(not(target_os = "macos"))]
+    let _ = name;
+}
 
 /// `plain`, encrypted for this Windows account, as base64.
 pub fn protect(plain: &str) -> Result<String> {
@@ -88,11 +140,11 @@ mod imp {
     use anyhow::{bail, Result};
 
     pub(super) fn protect(_: &[u8]) -> Result<Vec<u8>> {
-        bail!("Keys are kept only on Windows")
+        bail!("Keys are sealed only on Windows (a Mac keeps them in its keychain)")
     }
 
     pub(super) fn unprotect(_: &[u8]) -> Result<Vec<u8>> {
-        bail!("Keys are kept only on Windows")
+        bail!("Keys are sealed only on Windows (a Mac keeps them in its keychain)")
     }
 }
 

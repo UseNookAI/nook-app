@@ -116,7 +116,7 @@ fn what(engine: Engine) -> &'static str {
         Engine::Pandoc => "the document engine (Pandoc)",
         Engine::Pdf => "the PDF engine",
         Engine::LibreOffice => "the office engine (LibreOffice)",
-        Engine::Edge => "Microsoft Edge",
+        Engine::Edge => system::PRINTER,
         Engine::MsOffice => "Microsoft Office",
     }
 }
@@ -152,7 +152,7 @@ fn by(routes: &[Vec<Step>]) -> String {
                 ..
             } => "LibreOffice",
             Step::Pandoc { .. } => "Pandoc",
-            Step::Print => "Edge",
+            Step::Print => system::PRINTER_SHORT,
             Step::PdfPages { .. } | Step::PdfText { .. } | Step::ImagesToPdf => "PDFium",
             Step::Image { .. } | Step::Table { .. } => "Nook",
         };
@@ -292,8 +292,13 @@ impl ConvertService {
                 }
                 let missing =
                     (engines.contains(&Engine::Edge) && system::edge().is_none()).then(|| {
-                        "Microsoft Edge makes these PDFs, and it is not on this computer."
-                            .to_string()
+                        if cfg!(target_os = "macos") {
+                            "Chrome or Edge makes these PDFs, and neither is on this Mac."
+                                .to_string()
+                        } else {
+                            "Microsoft Edge makes these PDFs, and it is not on this computer."
+                                .to_string()
+                        }
                     });
                 let needs = engines
                     .iter()
@@ -584,11 +589,19 @@ impl ConvertService {
         let installed = |c: EngineComponent| packages.is_installed(c, Backend::Cpu);
         let soffice = installed(EngineComponent::Office).then(|| {
             let dir = packages.dir(EngineComponent::Office, Backend::Cpu);
+            if cfg!(target_os = "macos") {
+                // The app bundle copied out of LibreOffice's disk image.
+                return dir.join(EngineComponent::Office.executables()[0]);
+            }
             find_file(&dir, "soffice.com", 4).unwrap_or_else(|| dir.join("program/soffice.com"))
         });
         Kit {
             pandoc: installed(EngineComponent::Pandoc).then(|| {
-                packages.executable(EngineComponent::Pandoc, Backend::Cpu, &["pandoc.exe"])
+                packages.executable(
+                    EngineComponent::Pandoc,
+                    Backend::Cpu,
+                    EngineComponent::Pandoc.executables(),
+                )
             }),
             soffice,
             edge: system::edge(),

@@ -25,8 +25,9 @@ pub fn run() {
     let home = Home::resolve().expect("Nook cannot create its home folder");
     nook_core::logging::init(&home);
     // Started where the Kotlin Nook was installed (its updater's restart after installing this
-    // app): the installed Nook takes over, and this process ends here.
-    if handover::forward_to_installed() {
+    // app): the installed Nook takes over, and this process ends here. (Windows only: there never
+    // was a Kotlin Nook on a Mac.)
+    if cfg!(windows) && handover::forward_to_installed() {
         return;
     }
     tracing::info!(
@@ -34,9 +35,11 @@ pub fn run() {
         nook_core::build_info::BuildInfo::current().label(),
         home.root().display()
     );
+    // Before any engine starts: on macOS the engines end with Nook through the reaper.
+    nook_core::process::start_reaper();
     let nook = Nook::new(home).expect("Nook could not start");
     // An installed copy removes the Nook.exe the installer left there, once nothing needs it.
-    if nook_core::update::install::relaunch_target().is_some() {
+    if cfg!(windows) && nook_core::update::install::relaunch_target().is_some() {
         handover::remove_leftovers(handover::old_program_dirs(), handover::handed_over());
     }
 
@@ -268,10 +271,33 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Nook")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
+        .run(|app, event| match event {
+            // Quit from the menu or the Dock (Cmd+Q; code None) goes through the window's own
+            // close, which asks first while something is running and then quits with a code.
+            tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } if cfg!(target_os = "macos") => {
+                if let Some(main) = app.get_webview_window("main") {
+                    api.prevent_exit();
+                    let _ = main.emit("nook:quit-requested", ());
+                }
+            }
+            // The Dock's icon clicked with the window put away: it comes back.
+            #[cfg(target_os = "macos")]
+            tauri::RunEvent::Reopen {
+                has_visible_windows: false,
+                ..
+            } => {
+                if let Some(main) = app.get_webview_window("main") {
+                    let _ = main.unminimize();
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+            }
+            tauri::RunEvent::Exit => {
                 let nook = app.state::<AppState>().0.clone();
                 tauri::async_runtime::block_on(async move { nook.shutdown().await });
             }
+            _ => {}
         });
 }

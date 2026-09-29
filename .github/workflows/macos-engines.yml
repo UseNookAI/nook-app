@@ -1,0 +1,148 @@
+# The engines that have no macOS build upstream, built for Apple Silicon and attached to a release
+# named engines-macos-<n>: whisper.cpp (upstream ships only an xcframework), stable-diffusion.cpp
+# (upstream's Mac build needs macOS 26) and FFmpeg (LGPL, with VideoToolbox, AudioToolbox,
+# AVFoundation and Secure Transport; no one publishes an LGPL build for Apple Silicon).
+#
+# The versions are the ones resources/runtime/engines-macos.json pins; after a run, copy the
+# printed sha256 and bytes of each archive into that file. llama.cpp and audio.cpp come from their
+# own releases, PDFium from pdfium-binaries, Pandoc from its release, LibreOffice from its dmg.
+#
+# Run it by hand (Actions > macOS engines > Run workflow) with the release's number.
+name: macOS engines
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: "Release number n, for the tag engines-macos-<n>"
+        required: true
+        default: "1"
+
+permissions:
+  contents: write
+
+env:
+  WHISPER_TAG: b4938
+  SD_TAG: master-841-6b3edaa
+  FFMPEG_TAG: n8.1.3
+  # llama.cpp's Mac builds run from macOS 13.3; so do these.
+  MACOSX_DEPLOYMENT_TARGET: "13.3"
+
+jobs:
+  whisper:
+    runs-on: macos-14
+    steps:
+      - name: Build whisper.cpp with Metal
+        run: |
+          git clone --depth 1 --branch "$WHISPER_TAG" https://github.com/ggml-org/whisper.cpp src
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF \
+            -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DGGML_BLAS=ON \
+            -DWHISPER_BUILD_EXAMPLES=ON -DWHISPER_BUILD_TESTS=OFF -DWHISPER_SDL2=OFF
+          cmake --build build --config Release -j "$(sysctl -n hw.ncpu)" --target whisper-server whisper-cli
+
+      - name: Package
+        run: |
+          mkdir -p "pkg/whisper-$WHISPER_TAG"
+          cp build/bin/whisper-server build/bin/whisper-cli src/LICENSE "pkg/whisper-$WHISPER_TAG/"
+          otool -L "pkg/whisper-$WHISPER_TAG/whisper-server"
+          tar -C pkg -czf "whisper-$WHISPER_TAG-bin-macos-arm64-metal.tar.gz" "whisper-$WHISPER_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: whisper
+          path: whisper-*.tar.gz
+          if-no-files-found: error
+
+  sd:
+    runs-on: macos-14
+    steps:
+      - name: Build stable-diffusion.cpp with Metal
+        run: |
+          git clone --recursive https://github.com/leejet/stable-diffusion.cpp src
+          git -C src checkout "${SD_TAG##*-}"
+          git -C src submodule update --init --recursive
+          cmake -S src -B build -DCMAKE_BUILD_TYPE=Release -DSD_METAL=ON -DSD_BUILD_SHARED_LIBS=OFF \
+            -DGGML_METAL_EMBED_LIBRARY=ON
+          cmake --build build --config Release -j "$(sysctl -n hw.ncpu)"
+
+      - name: Package
+        run: |
+          mkdir -p "pkg/sd-$SD_TAG"
+          for b in sd-cli sd-server sd; do
+            [ -f "build/bin/$b" ] && cp "build/bin/$b" "pkg/sd-$SD_TAG/"
+          done
+          cp src/LICENSE "pkg/sd-$SD_TAG/"
+          ls -la "pkg/sd-$SD_TAG"
+          otool -L pkg/sd-$SD_TAG/sd*
+          tar -C pkg -czf "sd-$SD_TAG-bin-macos-arm64-metal.tar.gz" "sd-$SD_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sd
+          path: sd-*.tar.gz
+          if-no-files-found: error
+
+  ffmpeg:
+    runs-on: macos-14
+    steps:
+      - name: Build FFmpeg (LGPL, static)
+        run: |
+          brew install nasm pkg-config
+          git clone --depth 1 --branch "$FFMPEG_TAG" https://github.com/FFmpeg/FFmpeg src
+          cd src
+          ./configure --prefix="$PWD/../out" --disable-gpl --disable-nonfree \
+            --enable-static --disable-shared --disable-doc --disable-debug --disable-ffplay \
+            --enable-videotoolbox --enable-audiotoolbox --enable-securetransport \
+            --extra-cflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET" \
+            --extra-ldflags="-mmacosx-version-min=$MACOSX_DEPLOYMENT_TARGET"
+          make -j "$(sysctl -n hw.ncpu)"
+          make install
+
+      - name: Check what it can do
+        run: |
+          out/bin/ffmpeg -hide_banner -buildconf | head -40
+          out/bin/ffmpeg -hide_banner -encoders | grep -E 'videotoolbox|aac'
+          out/bin/ffmpeg -hide_banner -devices | grep avfoundation
+          out/bin/ffmpeg -hide_banner -protocols | grep -E 'rtmps|tls'
+          otool -L out/bin/ffmpeg
+
+      - name: Package
+        run: |
+          mkdir -p "pkg/ffmpeg-$FFMPEG_TAG"
+          cp out/bin/ffmpeg out/bin/ffprobe src/COPYING.LGPLv2.1 src/LICENSE.md "pkg/ffmpeg-$FFMPEG_TAG/"
+          tar -C pkg -czf "ffmpeg-$FFMPEG_TAG-macos-arm64-lgpl.tar.gz" "ffmpeg-$FFMPEG_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg
+          path: ffmpeg-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [whisper, sd, ffmpeg]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: engines
+          merge-multiple: true
+
+      - name: Checksums for engines-macos.json
+        run: |
+          cd engines
+          for f in *.tar.gz; do
+            printf '{"name":"%s","url":"https://github.com/%s/releases/download/engines-macos-%s/%s","sha256":"%s","bytes":%s}\n' \
+              "$f" "$GITHUB_REPOSITORY" "${{ github.event.inputs.release }}" "$f" \
+              "$(sha256sum "$f" | cut -d' ' -f1)" "$(stat -c %s "$f")"
+          done | tee checksums.jsonl
+          cat checksums.jsonl >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: macOS engines ${{ github.event.inputs.release }}
+          tag_name: engines-macos-${{ github.event.inputs.release }}
+          body: "Engines built for Nook on Apple Silicon (see .github/workflows/macos-engines.yml): whisper.cpp ${{ env.WHISPER_TAG }}, stable-diffusion.cpp ${{ env.SD_TAG }}, FFmpeg ${{ env.FFMPEG_TAG }} (LGPL)."
+          prerelease: true
+          files: |
+            engines/*.tar.gz
+            engines/checksums.jsonl

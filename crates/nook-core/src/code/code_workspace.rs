@@ -941,7 +941,11 @@ pub(crate) mod tests {
         assert!(inside(Path::new("src/main.rs")));
         assert!(!inside(Path::new("../outside")));
         assert!(!inside(Path::new("src/../../x")));
-        assert!(!inside(Path::new("C:\\Windows")));
+        if cfg!(windows) {
+            assert!(!inside(Path::new("C:\\Windows")));
+        } else {
+            assert!(!inside(Path::new("/etc")));
+        }
     }
 
     #[tokio::test]

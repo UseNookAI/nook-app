@@ -86,6 +86,38 @@ impl EngineComponent {
         }
     }
 
+    /// Where the component's program (or library, for PDFium) is inside its folder, first match
+    /// wins: the Windows builds' names, or the Mac builds' (no `.exe`, PDFium a `.dylib`,
+    /// LibreOffice an app bundle).
+    pub fn executables(self) -> &'static [&'static str] {
+        #[cfg(not(target_os = "macos"))]
+        return match self {
+            EngineComponent::Llama => &["llama-server.exe"],
+            EngineComponent::Whisper => &["whisper-server.exe", "server.exe"],
+            EngineComponent::Sd => &["sd-cli.exe", "sd.exe"],
+            EngineComponent::Ffmpeg => &["bin/ffmpeg.exe", "ffmpeg.exe"],
+            EngineComponent::Audio => &["audiocpp_cli.exe"],
+            EngineComponent::Pdfium => &["bin/pdfium.dll", "pdfium.dll"],
+            EngineComponent::Pandoc => &["pandoc.exe"],
+            EngineComponent::Office => &[
+                "program/soffice.com",
+                "LibreOffice/program/soffice.com",
+                "PFiles/LibreOffice/program/soffice.com",
+            ],
+        };
+        #[cfg(target_os = "macos")]
+        return match self {
+            EngineComponent::Llama => &["llama-server"],
+            EngineComponent::Whisper => &["whisper-server"],
+            EngineComponent::Sd => &["sd-cli", "sd"],
+            EngineComponent::Ffmpeg => &["ffmpeg", "bin/ffmpeg"],
+            EngineComponent::Audio => &["audiocpp_cli"],
+            EngineComponent::Pdfium => &["lib/libpdfium.dylib", "libpdfium.dylib"],
+            EngineComponent::Pandoc => &["bin/pandoc", "pandoc"],
+            EngineComponent::Office => &["LibreOffice.app/Contents/MacOS/soffice"],
+        };
+    }
+
     /// The component with this id, ignoring case (the manifest's keys).
     pub fn from_id(id: &str) -> Option<EngineComponent> {
         EngineComponent::ALL

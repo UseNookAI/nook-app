@@ -1,6 +1,6 @@
 # Nook
 
-Private and secure AI on your GPU, for Windows. A local coding worker changes your repository in a
+Private and secure AI on your GPU, for Windows and Apple silicon Macs (see [Nook on a Mac](#nook-on-a-mac)). A local coding worker changes your repository in a
 scratch copy and hands the change back as a diff; a Code editor keeps the worker beside the open
 file; short video clips render on your GPU; and a local OpenAI-compatible gateway serves the same
 models to other programs. Everything runs on models on your own machine.
@@ -220,12 +220,58 @@ in a `tools\rust` folder above the repository).
 cargo test --workspace; npm --prefix ui test
 ```
 
+On a Mac (Apple silicon, Xcode's command line tools, Rust, Node 22):
+
+```bash
+npm ci && npm --prefix ui ci
+npx tauri dev                 # the app from source
+./tools/package-macos.sh      # Nook.app, its disk image and its update tarball, in dist-macos/
+cargo test --workspace; npm --prefix ui test
+```
+
+## Nook on a Mac
+
+The same app from the same code, for Macs with Apple silicon (M1 and later) on macOS 13.3 or
+later: a disk image, Nook dragged to Applications. What differs from Windows:
+
+- **Engines** run on the GPU through Metal: llama.cpp's and audio.cpp's own Mac builds, and
+  whisper.cpp, stable-diffusion.cpp and FFmpeg (LGPL, with VideoToolbox) built for the Mac by
+  `.github/workflows/macos-engines.yml` into a release of this repository, pinned in
+  `resources/runtime/engines-macos.json`. The GPU's memory is the Mac's own: models are planned
+  against the working set Metal recommends or the memory the Mac has available, whichever is
+  less, with flash attention and a q8 cache as on CUDA. The finder stays on the processor.
+- **Data** is in `~/Library/Application Support/Nook` (`NOOK_RS_HOME` moves it).
+- **The worker's checks** run under macOS's own sandbox (Seatbelt, through `sandbox-exec`): they
+  write only in their scratch copy and its caches (`~/Library/Caches/Nook/checks`), read nothing
+  in your home but those and the toolchains on your PATH (and the rustup, pyenv, nvm and like
+  homes they need), and cannot use the clipboard, drive other apps or signal what is outside
+  their sandbox. They still have the network. `NOOK_UNSANDBOXED_CHECKS=1` turns it off, as there.
+  Engines end with Nook, even when it is killed, through a small reaper process.
+- **Edit a PDF** reads text in pictures with Apple's Vision, and finds a PDF's fonts among the
+  system's, your Library's and Microsoft Office's own.
+- **Convert documents** takes Office files through LibreOffice (Office for Mac cannot be driven
+  hidden), and prints web pages and text to PDF with Chrome, Edge, Brave or Chromium, whichever
+  is in Applications.
+- **Record your screen** captures with ScreenCaptureKit: a screen, a window (behind others too)
+  or an area, the pointer, and everything the Mac plays; FFmpeg encodes with VideoToolbox and
+  streams over RTMP or RTMPS (SRT is not there yet). macOS asks once for the permission to
+  record the screen. Stream keys stay in your login keychain; recordings go to Movies › Nook.
+- **Updates** come from `<base>/<channel>/macos-arm64/latest.json` (`nook-release manifest
+  --platform macos-arm64`): the new app, signed as a tarball, is unpacked beside the old one and
+  put in its place once Nook quits. Nook must run from Applications (not the disk image) for it.
+- **The window** keeps macOS's traffic lights; shortcuts use Cmd; Quit (Cmd+Q, the Dock) asks
+  first while something runs, as closing does. The app is signed ad hoc unless a Developer ID is
+  given (`.github/workflows/macos.yml` names the secrets); then it is signed and notarized.
+
 ## CI/CD
 
 - **GitHub Actions** (`.github/workflows`): every push and pull request runs rustfmt, clippy, the
   Rust and UI tests and the typecheck on Windows, then builds the installer as an artifact. A tag
   `v<version>` builds that version and attaches the installer and signed manifests to a release
-  (secret `NOOK_RS_RELEASE_KEY`, variable `NOOK_RS_UPDATE_BASE`).
+  (secret `NOOK_RS_RELEASE_KEY`, variable `NOOK_RS_UPDATE_BASE`). `macos.yml` does the same checks
+  on Apple silicon and builds the Mac app (disk image and update tarball) as an artifact, and the
+  tag's release gets them too; `macos-engines.yml`, run by hand, builds the Mac engines no one
+  publishes (whisper.cpp, stable-diffusion.cpp, FFmpeg) into a release `engines-macos-<n>`.
 - **On this PC** (`tools/`): `install-pipeline.ps1` (run once, from your own terminal) registers the
   "Nook pipeline" task and git hooks. Each commit on main then goes through `pipeline.ps1` →
   `publish.ps1 -Test`: the checks in a clean worktree, the installer with the next version, signed
