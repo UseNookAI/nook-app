@@ -22,6 +22,9 @@ pub struct AppState(pub Arc<Nook>);
 const SHOW_FALLBACK: Duration = Duration::from_secs(8);
 
 pub fn run() {
+    // First, before any thread: on a Mac, the PATH the person's shell has (for the worker's
+    // toolchains), which an app opened from the Finder does not get.
+    nook_core::platform::adopt_shell_path();
     let home = Home::resolve().expect("Nook cannot create its home folder");
     nook_core::logging::init(&home);
     // Started where the Kotlin Nook was installed (its updater's restart after installing this

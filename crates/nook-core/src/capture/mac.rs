@@ -44,7 +44,7 @@ use super::plan::{Source, Video};
 use super::sources::{Screen, Window, OWN_TITLES};
 
 /// What the person is told when macOS has not let Nook record the screen.
-pub const PERMISSION: &str = "Nook may not record the screen yet: allow it in System Settings, Privacy & Security, Screen & System Audio Recording, then try again.";
+pub const PERMISSION: &str = "Nook may not record the screen yet: allow it in System Settings, Privacy & Security, Screen & System Audio Recording, then quit Nook and open it again.";
 /// How long ScreenCaptureKit may take to answer.
 const ANSWER: Duration = Duration::from_secs(10);
 
