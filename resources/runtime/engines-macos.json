@@ -29,13 +29,17 @@
         "metal": [
           {
             "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz",
+            "sha256": "bc5e7ff3f3ac680393925abe8285b55ac40f9474f7a516b75d8c735630b2e05d",
+            "bytes": 2591134
           }
         ],
         "cpu": [
           {
             "name": "whisper-b4938-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/whisper-b4938-bin-macos-arm64-metal.tar.gz",
+            "sha256": "bc5e7ff3f3ac680393925abe8285b55ac40f9474f7a516b75d8c735630b2e05d",
+            "bytes": 2591134
           }
         ]
       }
@@ -47,13 +51,17 @@
         "metal": [
           {
             "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
+            "sha256": "27f622ac118332dd24104decb5efb360dc8d608886fcc81c1cbe5786d9b476aa",
+            "bytes": 48143577
           }
         ],
         "cpu": [
           {
             "name": "sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/sd-master-841-6b3edaa-bin-macos-arm64-metal.tar.gz",
+            "sha256": "27f622ac118332dd24104decb5efb360dc8d608886fcc81c1cbe5786d9b476aa",
+            "bytes": 48143577
           }
         ]
       }
@@ -65,7 +73,9 @@
         "any": [
           {
             "name": "ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz",
-            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz"
+            "url": "https://github.com/UseNookAI/nook-app/releases/download/engines-macos-2/ffmpeg-n8.1.3-macos-arm64-lgpl.tar.gz",
+            "sha256": "5f84f48e8c6a6dfb2a949f52dd5fd9d076e1216d33219f7a815814d3a1c95e00",
+            "bytes": 20084271
           }
         ]
       }

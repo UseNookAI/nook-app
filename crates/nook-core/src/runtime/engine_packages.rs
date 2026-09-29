@@ -1253,12 +1253,6 @@ mod tests {
         }
     }
 
-    /// The Mac's builds of whisper.cpp, stable-diffusion.cpp and FFmpeg come from Nook's own
-    /// release (.github/workflows/macos-engines.yml), pinned in engines-macos.json once it ran.
-    fn from_our_mac_release(a: &EngineArtifact) -> bool {
-        a.url.contains("/releases/download/engines-macos-")
-    }
-
     #[test]
     fn the_bundled_manifest_has_every_component() {
         let dir = tempfile::tempdir().unwrap();
@@ -1268,8 +1262,10 @@ mod tests {
             for &b in served() {
                 let p = packages.package_for(c, b).unwrap();
                 assert!(!p.artifacts.is_empty());
-                assert!(p.artifacts.iter().all(|a| from_our_mac_release(a)
-                    || (a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0)));
+                assert!(p
+                    .artifacts
+                    .iter()
+                    .all(|a| a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0));
             }
         }
         assert_ne!(packages.version(), "?");
@@ -1312,8 +1308,7 @@ mod tests {
                         a.name
                     );
                     assert!(
-                        from_our_mac_release(a)
-                            || (a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0),
+                        a.sha256.as_deref().map(str::len) == Some(64) && a.bytes > 0,
                         "{} is not pinned",
                         a.name
                     );
