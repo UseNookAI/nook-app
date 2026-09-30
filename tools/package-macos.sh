@@ -28,7 +28,8 @@ config=()
 if [ -n "${NOOK_VERSION:-}" ]; then
   config=(--config "{\"version\":\"$NOOK_VERSION\"}")
 fi
-npx tauri build --ci --bundles app,dmg "${config[@]}"
+# (macOS's bash 3.2 takes an empty array for an unset one under set -u: expanded only when set)
+npx tauri build --ci --bundles app,dmg ${config[@]+"${config[@]}"}
 
 bundle=target/release/bundle
 app="$bundle/macos/Nook.app"
