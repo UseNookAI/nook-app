@@ -42,11 +42,12 @@ pub fn settings_set(state: State<'_, AppState>, name: String, value: String) -> 
     Ok(())
 }
 
-/// Settings › General › Erase everything: settings back to defaults and the log emptied. The
-/// caller quits afterwards.
+/// Settings › General › Erase everything: settings back to defaults, the log emptied and the usage
+/// counts dropped under a new install number. The caller quits afterwards.
 #[tauri::command]
 pub fn app_erase_everything(state: State<'_, AppState>) -> CmdResult<()> {
     let _ = std::fs::remove_file(state.0.home.log_file());
+    state.0.usage.reset();
     state.0.settings.reset().map_err(err)
 }
 

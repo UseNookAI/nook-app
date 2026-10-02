@@ -24,6 +24,9 @@ export const Setting = {
   IS_ADVANCED_MODE: "IS_ADVANCED_MODE",
   LAST_ACTIVE_SCREEN: "LAST_ACTIVE_SCREEN",
   UPDATE_CHANNEL: "UPDATE_CHANNEL",
+  /** The daily usage report: "true" unless turned off (ui/src/api/usage.ts). */
+  SHARE_USAGE: "SHARE_USAGE",
+  USAGE_NOTICE_SHOWN: "USAGE_NOTICE_SHOWN",
 } as const;
 
 export const appInfo = () => call<AppInfo>("app_info");

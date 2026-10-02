@@ -21,6 +21,10 @@ pub const IS_ADVANCED_MODE: &str = "IS_ADVANCED_MODE";
 pub const LAST_ACTIVE_SCREEN: &str = "LAST_ACTIVE_SCREEN";
 /// stable, or dev for every build of main.
 pub const UPDATE_CHANNEL: &str = "UPDATE_CHANNEL";
+/// Whether the daily usage report goes out (`crate::usage`); on unless the person turns it off.
+pub const SHARE_USAGE: &str = "SHARE_USAGE";
+/// Set once the notice about the usage report has been on screen; nothing is sent before.
+pub const USAGE_NOTICE_SHOWN: &str = "USAGE_NOTICE_SHOWN";
 
 /// Every property with its default, created when missing (`InitializeGlobalProperties`).
 pub const DEFAULTS: &[(&str, &str)] = &[
@@ -35,6 +39,8 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     (IS_ADVANCED_MODE, "false"),
     (LAST_ACTIVE_SCREEN, ""),
     (UPDATE_CHANNEL, "stable"),
+    (SHARE_USAGE, "true"),
+    (USAGE_NOTICE_SHOWN, "false"),
 ];
 
 pub struct Settings {

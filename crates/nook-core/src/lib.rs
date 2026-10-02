@@ -34,6 +34,7 @@ pub mod pdf;
 pub mod runtime;
 pub mod speech;
 pub mod update;
+pub mod usage;
 pub mod video;
 pub mod web;
 pub mod worker;

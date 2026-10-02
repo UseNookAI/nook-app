@@ -33,6 +33,7 @@ use crate::runtime::{ModelDownloadService, RuntimeConfig, RuntimeManager};
 use crate::settings::Settings;
 use crate::speech::Recorder;
 use crate::update::{ChannelStore, UpdateSource, Updater};
+use crate::usage::Usage;
 use crate::video::VideoStudio;
 use crate::web::WebAccess;
 use crate::Home;
@@ -70,6 +71,8 @@ pub struct Nook {
     pub nooklets: Arc<Finder>,
     /// The screen recorder Nooklet.
     pub capture: Arc<CaptureService>,
+    /// The anonymous usage counts and their daily report.
+    pub usage: Arc<Usage>,
     /// The loopback gateway while it runs (started in [`Nook::start`] on
     /// `gateway_port::choose()`, writing `home.gateway_file()`).
     gateway: Mutex<Option<GatewayHandle>>,
@@ -136,6 +139,7 @@ impl Nook {
         updater.register_busy("Finder", nooklets.clone());
         let capture = CaptureService::new(runtime.clone(), settings.clone());
         updater.register_busy("CaptureService", capture.clone());
+        let usage = Usage::new(&home, settings.clone());
         Ok(Arc::new(Nook {
             home,
             settings,
@@ -152,6 +156,7 @@ impl Nook {
             convert,
             nooklets,
             capture,
+            usage,
             gateway: Mutex::new(None),
             started: AtomicBool::new(false),
             stopping: CancellationToken::new(),
@@ -168,6 +173,8 @@ impl Nook {
             return Ok(());
         }
         self.runtime.start().await;
+        // Counts runs from now on; the first report waits a couple of minutes.
+        self.usage.start(self.runtime.inventory().clone());
         if !self.stopping.is_cancelled() {
             match Gateway::start(self.runtime.clone(), self.video.clone(), &self.home).await {
                 Ok(gateway) => {
@@ -206,6 +213,7 @@ impl Nook {
         if let Some(schedule) = self.update_schedule.lock().take() {
             schedule.abort();
         }
+        self.usage.shutdown();
         let recorder = self.recorder.clone();
         let _ = tokio::task::spawn_blocking(move || recorder.cancel()).await;
         let gateway = self.gateway.lock().take();

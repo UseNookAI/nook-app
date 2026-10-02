@@ -3,6 +3,7 @@
 //! "nooklets" topic).
 
 use nook_core::nooklets::{FinderSetup, Found};
+use nook_core::usage::Tool;
 use tauri::State;
 
 use super::CmdResult;
@@ -16,6 +17,9 @@ pub fn nooklets_setup(state: State<'_, AppState>) -> FinderSetup {
 /// Every Nooklet for `request`, the best first.
 #[tauri::command]
 pub async fn nooklets_find(state: State<'_, AppState>, request: String) -> CmdResult<Found> {
+    if !request.trim().is_empty() {
+        state.0.usage.used(Tool::FinderSearch);
+    }
     Ok(state.0.nooklets.find(&request).await)
 }
 

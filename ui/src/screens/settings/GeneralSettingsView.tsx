@@ -1,4 +1,4 @@
-/** Appearance, updates and erasing Nook's data, on one page (GeneralSettingsView.kt). */
+/** Appearance, updates, the usage report and erasing Nook's data, on one page (GeneralSettingsView.kt). */
 import type { UpdateChannel } from "../../api/update";
 import { APP_THEME_MODES, type AppThemeMode } from "../../shell/theme";
 import {
@@ -9,6 +9,7 @@ import {
   SettingsRowDivider,
   SettingsView,
 } from "./components";
+import { UsageSetting } from "./UsageSetting";
 
 export interface GeneralSettingsViewProps {
   currentTheme: AppThemeMode;
@@ -63,6 +64,10 @@ export function GeneralSettingsView({
         <SettingsItemRow title="Check now" description={checkText}>
           <SettingsAction text="Check" onClick={onCheckForUpdates} />
         </SettingsItemRow>
+      </SettingsGroup>
+
+      <SettingsGroup title="Privacy">
+        <UsageSetting />
       </SettingsGroup>
 
       <SettingsGroup title="Data">

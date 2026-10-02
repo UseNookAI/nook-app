@@ -16,6 +16,7 @@ use nook_core::runtime::downloads::{self, NOOK_REGISTRY};
 use nook_core::runtime::{
     AiModelDto, CatalogModel, LocalModel, Repo, RuntimeManager, Variant, CODE_WORKER,
 };
+use nook_core::usage::Tool;
 use nook_core::Nook;
 use serde::Serialize;
 use tauri::State;
@@ -135,6 +136,7 @@ pub async fn models_download(state: State<'_, AppState>, id: String) -> CmdResul
         .await
         .ok_or_else(|| format!("Unknown catalog model {id}"))?;
     state.0.downloads.launch_download(&model);
+    state.0.usage.used(Tool::ModelDownload);
     Ok(())
 }
 
@@ -232,7 +234,11 @@ pub async fn hub_download(
     repo: Repo,
     variant: Variant,
 ) -> CmdResult<bool> {
-    Ok(state.0.runtime.download_hub_async(repo, variant))
+    let started = state.0.runtime.download_hub_async(repo, variant);
+    if started {
+        state.0.usage.used(Tool::ModelDownload);
+    }
+    Ok(started)
 }
 
 /// Stops a hub download; the partial file stays so the next attempt resumes.

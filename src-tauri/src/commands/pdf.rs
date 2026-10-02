@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use nook_core::flow::Install;
 use nook_core::pdf::{Align, Area, Block, PdfDoc, Pick, Replaced};
+use nook_core::usage::Tool;
 use serde::Serialize;
 use tauri::ipc::Response;
 use tauri::State;
@@ -55,7 +56,9 @@ pub fn pdf_clear_install_error(state: State<'_, AppState>) {
 
 #[tauri::command]
 pub async fn pdf_open(state: State<'_, AppState>, path: String) -> CmdResult<PdfDoc> {
-    state.0.pdf.open(&PathBuf::from(path)).await.map_err(msg)
+    let opened = state.0.pdf.open(&PathBuf::from(path)).await.map_err(msg);
+    state.0.usage.outcome(Tool::PdfOpen, &opened);
+    opened
 }
 
 /// Every open document (the page opens again on the one it had).
@@ -114,12 +117,14 @@ pub async fn pdf_save(
     id: String,
     path: Option<String>,
 ) -> CmdResult<PdfDoc> {
-    state
+    let saved = state
         .0
         .pdf
         .save(&id, path.map(PathBuf::from))
         .await
-        .map_err(msg)
+        .map_err(msg);
+    state.0.usage.outcome(Tool::PdfSave, &saved);
+    saved
 }
 
 #[tauri::command]

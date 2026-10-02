@@ -157,6 +157,8 @@ try {
     $env:NOOK_VERSION = $Version
     $env:NOOK_COMMIT = $sha
     $env:NOOK_RS_UPDATE_BASE = $site.BaseUrl
+    # Builds for the download host send the daily usage report (nook_core::usage); a test feed's do not.
+    $env:NOOK_RS_USAGE_BASE = if ($Feed) { '' } else { 'https://api.usenook.ai' }
     # stderr is merged inside cmd: PowerShell 5.1 would turn cargo's and npm's progress into errors.
     function Invoke-InTree([string]$what, [string]$command) {
       cmd /c "cd /d `"$worktree`" && ($command) 2>&1"

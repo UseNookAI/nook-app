@@ -5,6 +5,7 @@
 //! Opening the device, joining the recording thread and writing the WAV block briefly, so the
 //! recorder runs on the blocking pool.
 
+use nook_core::usage::Tool;
 use tauri::State;
 
 use super::{blocking, err, CmdResult};
@@ -26,6 +27,7 @@ pub async fn speech_stop_and_transcribe(state: State<'_, AppState>) -> CmdResult
     if let Err(e) = tokio::fs::remove_file(&wav).await {
         tracing::warn!("Could not delete the recording {}: {e}", wav.display());
     }
+    state.0.usage.outcome(Tool::VoicePrompt, &text);
     text.map_err(err)
 }
 

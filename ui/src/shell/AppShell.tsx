@@ -7,6 +7,7 @@ import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { quit, quitCheck, Setting, settingsSet } from "../api/app";
 import { inTauri } from "../api/ipc";
 import { updateCancel } from "../api/update";
+import { usageNoticeDue } from "../api/usage";
 import { HubNav } from "../screens/code/HubNav";
 import { HubScreen } from "../screens/hub/HubScreen";
 import { NukeScreen } from "../screens/nuke/NukeScreen";
@@ -19,6 +20,7 @@ import { useTheme } from "./theme";
 import { leaveReasons } from "./unsaved";
 import { SetupHeader, TopBar } from "./TopBar";
 import { UpdateDialog } from "./UpdateDialog";
+import { UsageNotice } from "./UsageNotice";
 import { useUpdate } from "./useUpdate";
 import { applyWindowMode, useCloseRequest } from "./window";
 import "./shell.css";
@@ -50,6 +52,8 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
   const [showExitDialog, setShowExitDialog] = useState(false);
   /** What closing now would lose or stop, for the quit dialog. */
   const [exitReasons, setExitReasons] = useState<string[]>([]);
+  /** The one-time notice about the usage report, until it has been answered. */
+  const [showUsageNotice, setShowUsageNotice] = useState(() => usageNoticeDue(settings));
   const { dark, setMode } = useTheme();
   const update = useUpdate();
   const busy = useBusyKeys();
@@ -118,6 +122,16 @@ export function AppShell({ settings }: { settings: Record<string, string> }) {
         )}
         {screen === "nuke" && <NukeScreen onProceed={() => setScreen("welcome")} onReturn={() => setScreen("hub")} />}
       </div>
+
+      {screen === "hub" && !DevGallery && showUsageNotice && (
+        <UsageNotice
+          onClose={() => setShowUsageNotice(false)}
+          onOpenSettings={() => {
+            setShowUsageNotice(false);
+            openSettings("general");
+          }}
+        />
+      )}
 
       {isSetupPhase && <SetupHeader onClose={requestWindowClose} onScrim={screen === "nuke"} />}
 

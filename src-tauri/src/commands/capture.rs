@@ -17,6 +17,7 @@ use nook_core::capture::sources::{self, OWN_TITLES};
 use nook_core::capture::{CaptureState, Source, StartOptions};
 use nook_core::events::{self, topic};
 use nook_core::flow::Install;
+use nook_core::usage::Tool;
 use serde_json::json;
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
@@ -71,7 +72,16 @@ pub async fn capture_start(
             let _ = m.minimize();
         }
     }
-    match state.0.capture.start(options).await {
+    let streams = options.stream.is_some();
+    let records = options.record || !streams;
+    let result = state.0.capture.start(options).await;
+    if records {
+        state.0.usage.outcome(Tool::ScreenRecord, &result);
+    }
+    if streams {
+        state.0.usage.outcome(Tool::ScreenStream, &result);
+    }
+    match result {
         Ok(started) => {
             open_bar(&app, started.monitor);
             Ok(started)

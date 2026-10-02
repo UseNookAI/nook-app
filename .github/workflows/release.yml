@@ -61,6 +61,7 @@ jobs:
           NOOK_VERSION: ${{ steps.v.outputs.version }}
           NOOK_COMMIT: ${{ steps.v.outputs.commit }}
           NOOK_RS_UPDATE_BASE: ${{ vars.NOOK_RS_UPDATE_BASE }}
+          NOOK_RS_USAGE_BASE: ${{ vars.NOOK_RS_USAGE_BASE }}
         run: npx tauri build --ci --config "{\`"version\`":\`"$env:NOOK_VERSION\`"}"
 
       - name: Sign the manifests

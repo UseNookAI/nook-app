@@ -242,10 +242,21 @@ cargo test --workspace; npm --prefix ui test
 ## Data
 
 Everything stays on the machine, under `%LOCALAPPDATA%\Nook-rs`. The only outbound traffic is the
-model and engine downloads you start, the update check when a feed or host is configured, and,
-while web access is on, the worker's searches and the pages it reads. Settings › General › Erase
-everything puts the settings back to their defaults and empties the log, as the original did;
-sessions, models and videos stay until you delete them.
+model and engine downloads you start, the update check when a feed or host is configured, the daily
+usage report described below, and, while web access is on, the worker's searches and the pages it
+reads. Settings › General › Erase everything puts the settings back to their defaults, empties the
+log and starts the usage counts over under a new install number; sessions, models and videos stay
+until you delete them.
+
+**Usage statistics** (`crates/nook-core/src/usage.rs`). Once a day a published build sends
+`api.usenook.ai/v1/ping` a report of how often each tool was used and how often it failed
+(`pdf.save`, `convert.run`, `screen.record`... a fixed list), with the version, Windows or macOS,
+the update channel, the graphics card's maker and memory, and a random install number. No file,
+text, prompt, path, model name or error message is ever in it. It is on by default, nothing goes
+before the one-time notice has been on screen, and Settings › General › Usage statistics turns it
+off and shows the next report as it would be sent. Builds from source and for test feeds send
+nothing (`NOOK_RS_USAGE_BASE` is stamped by `tools/publish.ps1`); `NOOK_RS_USAGE_URL` points a run
+elsewhere or turns it off (`off`, the default in `tools/dev-sandbox.ps1`).
 
 Coming from the Kotlin Nook, its sessions, worker choices, measured speeds, web-access switch
 and engines are imported once (see above) and its models are read where they are. Its settings

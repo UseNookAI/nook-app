@@ -14,6 +14,7 @@ import { registerNookletsMocks } from "./nooklets";
 import { registerPdfMocks } from "./pdf";
 import { registerRuntimeMocks } from "./runtime";
 import { registerUpdateMocks } from "./update";
+import { registerUsageMocks } from "./usage";
 import { registerVideoMocks } from "./video";
 
 export function installMocks(): void {
@@ -30,4 +31,5 @@ export function installMocks(): void {
   registerNookletsMocks();
   registerCaptureMocks();
   registerModelsMocks();
+  registerUsageMocks();
 }

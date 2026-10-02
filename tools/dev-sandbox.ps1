@@ -23,13 +23,17 @@
   A Nook home whose runtime\bin and runtime\downloads the sandbox links to; none by default.
 .PARAMETER UpdateUrl
   A feed or address for the sandbox's updater (NOOK_RS_UPDATE_URL); none by default.
+.PARAMETER UsageUrl
+  Where the sandbox sends its usage report (NOOK_RS_USAGE_URL), e.g. a local admin server's
+  http://127.0.0.1:8790/v1/ping; off by default, so a sandbox never counts as an install.
 #>
 [CmdletBinding()]
 param(
   [string]$NookHome = (Join-Path $env:TEMP 'nook-rs-sandbox'),
   [int]$Port = 41510,
   [string]$EnginesFrom,
-  [string]$UpdateUrl
+  [string]$UpdateUrl,
+  [string]$UsageUrl = 'off'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +54,7 @@ if ($EnginesFrom) {
 $env:NOOK_RS_HOME = $NookHome
 $env:NOOK_RS_GATEWAY_PORT = "$Port"
 if ($UpdateUrl) { $env:NOOK_RS_UPDATE_URL = $UpdateUrl }
+$env:NOOK_RS_USAGE_URL = $UsageUrl
 
 Write-Host "Sandbox home: $NookHome"
 Write-Host "Gateway:      http://127.0.0.1:$Port (token in $NookHome\gateway.json)"

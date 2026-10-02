@@ -8,6 +8,7 @@
 
 use nook_core::code::{CodeService, CodeSession, CodeSnapshot, EditorContext, NextContext};
 use nook_core::code::{RepositoryState, SpeechModel};
+use nook_core::usage::Tool;
 use serde::Serialize;
 use tauri::State;
 
@@ -36,10 +37,12 @@ pub async fn code_start(
     verify: Option<String>,
     context: Option<EditorContext>,
 ) -> CmdResult<CodeSession> {
-    service(&state)
+    let started = service(&state)
         .start(&folder, &text, verify.as_deref(), context.as_ref())
         .await
-        .map_err(err)
+        .map_err(err);
+    state.0.usage.outcome(Tool::CodeSession, &started);
+    started
 }
 
 /// Asks for the next change in a session; returns once the turn is under way.
@@ -51,10 +54,12 @@ pub async fn code_send(
     verify: Option<String>,
     context: Option<EditorContext>,
 ) -> CmdResult<()> {
-    service(&state)
+    let sent = service(&state)
         .send(&id, &text, verify.as_deref(), context.as_ref())
         .await
-        .map_err(err)
+        .map_err(err);
+    state.0.usage.outcome(Tool::CodeTurn, &sent);
+    sent
 }
 
 #[tauri::command]
@@ -64,7 +69,9 @@ pub fn code_stop(state: State<'_, AppState>, id: String) {
 
 #[tauri::command]
 pub async fn code_apply(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    service(&state).apply(&id).await.map_err(err)
+    let applied = service(&state).apply(&id).await.map_err(err);
+    state.0.usage.outcome(Tool::CodeApply, &applied);
+    applied
 }
 
 #[tauri::command]

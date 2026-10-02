@@ -14,6 +14,7 @@ pub mod pdf;
 pub mod runtime;
 pub mod speech;
 pub mod update;
+pub mod usage;
 pub mod video;
 
 /// A command's error: the message the UI shows as it is.

@@ -21,12 +21,16 @@ const DEFAULTS: Record<string, string> = {
   IS_ADVANCED_MODE: "false",
   LAST_ACTIVE_SCREEN: "",
   UPDATE_CHANNEL: "stable",
+  SHARE_USAGE: "true",
+  USAGE_NOTICE_SHOWN: "false",
 };
 
-const settings: Record<string, string> = {
+/** The stand-in settings; other mocks (usage) read and change them too. */
+export const mockSettings: Record<string, string> = {
   ...DEFAULTS,
   IS_SETUP_COMPLETED: "true",
   SETUP_VERSION: "1",
+  USAGE_NOTICE_SHOWN: "true",
 };
 
 const document = (title: string, body: string) =>
@@ -36,24 +40,24 @@ const document = (title: string, body: string) =>
   `<h1 style="font-size:28px;margin:0 0 12px;font-weight:600;">${title}</h1>${body}</div></body></html>`;
 
 export function registerAppMocks(): void {
-  if (mockFlag("welcome") !== null) settings.IS_SETUP_COMPLETED = "false";
-  if (mockFlag("dark") !== null) settings.APP_THEME = "Dark";
-  if (mockFlag("system") !== null) settings.APP_THEME = "System";
+  if (mockFlag("welcome") !== null) mockSettings.IS_SETUP_COMPLETED = "false";
+  if (mockFlag("dark") !== null) mockSettings.APP_THEME = "Dark";
+  if (mockFlag("system") !== null) mockSettings.APP_THEME = "System";
 
   mock("app_info", () => ({
     build: { version: "0.5.0", commit: "mock", time: new Date().toISOString() },
     label: "0.5.0 (mock, 2026-09-25)",
     home: "C:\\Users\\you\\AppData\\Local\\Nook-rs",
   }));
-  mock("settings_all", () => ({ ...settings }));
+  mock("settings_all", () => ({ ...mockSettings }));
   mock("settings_set", ({ name, value }) => {
-    settings[name as string] = value as string;
+    mockSettings[name as string] = value as string;
     mockEmit("settings", { name });
   });
   mock("app_erase_everything", async () => {
     await new Promise((r) => setTimeout(r, 900));
-    for (const key of Object.keys(settings)) delete settings[key];
-    Object.assign(settings, DEFAULTS);
+    for (const key of Object.keys(mockSettings)) delete mockSettings[key];
+    Object.assign(mockSettings, DEFAULTS);
   });
   mock("app_quit", () => console.info("[browser] app_quit: the app would exit here"));
   mock("app_quit_check", () => (new URLSearchParams(window.location.search).get("quit") === "busy" ? ["a PDF has changes that are not saved yet"] : []));
