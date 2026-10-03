@@ -22,3 +22,20 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
         Write-Warning "No cargo on PATH and no portable toolchain in a tools\rust folder above $PSScriptRoot (set NOOK_RUST_ROOT)"
     }
 }
+
+# The Windows SDK's resource compiler, for the icon and version info built into Nook.exe
+# (tauri-winres, through embed-resource), unless RC names one already. embed-resource looks for it
+# under the SDK folder the registry names and then through Visual Studio; where the 64-bit registry
+# names a Windows Kits folder without the tools, only Visual Studio's answer finds it, and not every
+# time (one publish's clippy found it and its tests, seconds later, did not).
+if (-not $env:RC) {
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x64' }
+    $kits = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin'
+    $rc = Get-ChildItem $kits -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^\d+(\.\d+){3}$' } |
+        Sort-Object { [version]$_.Name } -Descending |
+        ForEach-Object { Join-Path $_.FullName "$arch\rc.exe" } |
+        Where-Object { Test-Path $_ } |
+        Select-Object -First 1
+    if ($rc) { $env:RC = $rc }
+}
