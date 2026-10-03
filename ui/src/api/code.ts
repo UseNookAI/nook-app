@@ -73,7 +73,14 @@ export interface CodeSession {
   verify: string | null;
   change: Change | null;
   entries: Entry[];
+  /** The page it was started from, whose sidebar lists it: the Chat page or the Code page's Nook panel. */
+  origin?: SessionOrigin;
 }
+
+export type SessionOrigin = "chat" | "editor";
+
+/** Whether a session belongs to the Code page's Nook panel (an older one without an origin is the Chat page's). */
+export const isEditorSession = (s: CodeSession) => s.origin === "editor";
 
 export interface WorkerChoice {
   id: string;
@@ -123,8 +130,13 @@ export interface EditorContext {
 export const THINKING = "thinking";
 
 export const codeSnapshot = () => call<CodeSnapshot>("code_snapshot");
-export const codeStart = (folder: string, text: string, verify: string | null = null, context: EditorContext | null = null) =>
-  call<CodeSession>("code_start", { folder, text, verify, context });
+export const codeStart = (
+  folder: string,
+  text: string,
+  verify: string | null = null,
+  context: EditorContext | null = null,
+  origin: SessionOrigin = "chat",
+) => call<CodeSession>("code_start", { folder, text, verify, context, origin });
 export const codeSend = (id: string, text: string, verify: string | null = null, context: EditorContext | null = null) =>
   call<void>("code_send", { id, text, verify, context });
 export const codeStop = (id: string) => call<void>("code_stop", { id });

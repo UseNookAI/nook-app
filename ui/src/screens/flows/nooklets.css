@@ -47,10 +47,6 @@
 .nl-hit:nth-child(4) { animation-delay: 120ms; }
 @keyframes nl-rise { from { opacity: 0; transform: translateY(6px); } }
 
-/* The rail's way back to the finder */
-.fl-rail__find { margin-bottom: var(--space-small); }
-.fl-rail__find .fl-rail__icon { background: transparent; border: var(--border-width) solid var(--border-strong); color: var(--text-secondary); }
-
 /* ---------------------------------------------------------------- Scout */
 
 .nlc { display: block; overflow: visible; }

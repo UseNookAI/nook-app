@@ -739,6 +739,7 @@ function seed(): void {
     sessions.set(id, {
       id,
       title: "Rename the config loader and update its callers",
+      origin: "editor",
       repository: `${HOME}\\nook-cli`,
       createdAt: at,
       updatedAt: at + 50 * MINUTE,
@@ -809,6 +810,7 @@ function seed(): void {
     sessions.set(id, {
       id,
       title: "Port the CSV export to streams",
+      origin: "editor",
       repository: `${HOME}\\reports`,
       createdAt: at,
       updatedAt: at + 21 * MINUTE,
@@ -970,7 +972,7 @@ export function registerCodeMocks(): void {
 
   mock("code_snapshot", () => snapshot());
 
-  mock("code_start", async ({ folder, text, verify }) => {
+  mock("code_start", async ({ folder, text, verify, origin }) => {
     await sleep(250);
     const st = repositoryState(String(folder));
     if (st.readiness === "MISSING" || st.readiness === "TOO_BIG") throw new Error(st.reason ?? "That folder cannot be used.");
@@ -989,6 +991,7 @@ export function registerCodeMocks(): void {
       verify: (verify as string | null) ?? null,
       change: null,
       entries: [],
+      origin: origin === "editor" ? "editor" : "chat",
     };
     sessions.set(id, s);
     try {

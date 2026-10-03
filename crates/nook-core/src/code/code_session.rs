@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 /// - `baseline`: what the change is taken against: None for `base_commit`, else the tree the
 ///   scratch copy held when its changes were last applied to the repository
 /// - `change`: what the scratch copy holds that the repository does not, or None when nothing
+/// - `origin`: the page it was started from, whose sidebar lists it
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct CodeSession {
@@ -33,6 +34,17 @@ pub struct CodeSession {
     pub change: Option<Change>,
     #[serde(deserialize_with = "null_as_empty")]
     pub entries: Vec<Entry>,
+    pub origin: Origin,
+}
+
+/// Where a session was started: the Chat page, or the Nook panel beside the Code page's editor.
+/// A session saved before sessions said so reads as Chat.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Origin {
+    #[default]
+    Chat,
+    Editor,
 }
 
 /// The change as it stands: the diff against the baseline, cut at

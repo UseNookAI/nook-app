@@ -216,6 +216,7 @@ fn lost_session(
         verify: None,
         change,
         entries: Vec::new(),
+        origin: Origin::Chat,
     }
 }
 
@@ -797,6 +798,45 @@ async fn a_greeting_is_answered_without_a_scratch_copy() {
         .unwrap()
         .to_string();
     assert!(system.contains(TALK_WEB.trim()), "the web is on: {system}");
+}
+
+#[tokio::test]
+async fn a_session_says_which_page_started_it() {
+    let f = fixture(BOTH).await;
+    let folder = f.tmp.path().join("plain");
+    std::fs::create_dir_all(&folder).unwrap();
+    let folder = folder.to_string_lossy().to_string();
+    f.script.triage("TALK: Hi.");
+    f.script.triage("TALK: Hi again.");
+    let chat = f.service.start(&folder, "Hey", None, None).await.unwrap();
+    let editor = f
+        .service
+        .start_from(Origin::Editor, &folder, "Hey", None, None)
+        .await
+        .unwrap();
+    assert_eq!(Origin::Chat, chat.origin);
+    assert_eq!(Origin::Editor, editor.origin);
+    settled(&f.service, &chat.id).await;
+    settled(&f.service, &editor.id).await;
+
+    // An older session the Code page's panel remembers becomes the panel's, and stays so on disk.
+    f.service
+        .mark_editor_sessions([chat.id.as_str(), "no-such-session"]);
+    assert_eq!(Origin::Editor, f.service.session(&chat.id).unwrap().origin);
+    let file = Home::at(f.tmp.path().join("home"))
+        .code_dir()
+        .join("sessions")
+        .join(format!("{}.json", chat.id));
+    let saved: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+    assert_eq!("editor", saved["origin"]);
+}
+
+#[test]
+fn a_session_saved_before_origins_reads_as_the_chat_pages() {
+    let s: CodeSession =
+        serde_json::from_str(r#"{"id":"ab12cd34","title":"Old","repository":"C:\\r"}"#).unwrap();
+    assert_eq!(Origin::Chat, s.origin);
 }
 
 #[tokio::test]

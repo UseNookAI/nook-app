@@ -7,7 +7,7 @@
 //! check) runs on the blocking pool; turns run as tokio tasks the service starts itself.
 
 use nook_core::code::{CodeService, CodeSession, CodeSnapshot, EditorContext, NextContext};
-use nook_core::code::{RepositoryState, SpeechModel};
+use nook_core::code::{Origin, RepositoryState, SpeechModel};
 use nook_core::usage::Tool;
 use serde::Serialize;
 use tauri::State;
@@ -29,6 +29,7 @@ pub async fn code_snapshot(state: State<'_, AppState>) -> CmdResult<CodeSnapshot
 }
 
 /// Starts a session on `folder` and its first turn; the new session, with the turn under way.
+/// `origin`: the page it was started from (the Chat page when not given).
 #[tauri::command]
 pub async fn code_start(
     state: State<'_, AppState>,
@@ -36,9 +37,16 @@ pub async fn code_start(
     text: String,
     verify: Option<String>,
     context: Option<EditorContext>,
+    origin: Option<Origin>,
 ) -> CmdResult<CodeSession> {
     let started = service(&state)
-        .start(&folder, &text, verify.as_deref(), context.as_ref())
+        .start_from(
+            origin.unwrap_or_default(),
+            &folder,
+            &text,
+            verify.as_deref(),
+            context.as_ref(),
+        )
         .await
         .map_err(err);
     state.0.usage.outcome(Tool::CodeSession, &started);

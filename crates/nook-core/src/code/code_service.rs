@@ -26,7 +26,7 @@ use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
 use super::code_session::{
-    now_millis, Change, CodeSession, Entry, Note, Run, Task, APPLIED, DISCARDED, UNDONE,
+    now_millis, Change, CodeSession, Entry, Note, Origin, Run, Task, APPLIED, DISCARDED, UNDONE,
 };
 use super::code_store::CodeStore;
 use super::code_workspace::{self, Created, RepositoryState};
@@ -358,6 +358,20 @@ impl CodeService {
         verify: Option<&str>,
         context: Option<&EditorContext>,
     ) -> Result<CodeSession> {
+        self.start_from(Origin::Chat, folder, text, verify, context)
+            .await
+    }
+
+    /// [`CodeService::start`] for a session started from `origin`: the Chat page, or the Nook
+    /// panel beside the Code page's editor. The sidebar lists each page's own sessions.
+    pub async fn start_from(
+        &self,
+        origin: Origin,
+        folder: &str,
+        text: &str,
+        verify: Option<&str>,
+        context: Option<&EditorContext>,
+    ) -> Result<CodeSession> {
         let st = self.repository_state(folder).await?;
         if !st.usable() {
             bail!("{}", st.reason.unwrap_or_default());
@@ -377,6 +391,7 @@ impl CodeService {
             created_at: now,
             updated_at: now,
             verify: blank_to_null(verify),
+            origin,
             ..CodeSession::default()
         };
         self.inner.sessions.lock().insert(id.clone(), s);
@@ -677,6 +692,23 @@ impl CodeService {
         }
         self.inner
             .mutate(id, |cur| cur.with_title(title.trim()), true);
+    }
+
+    /// Marks the sessions `ids` as started beside the Code page's editor: those its Nook panel
+    /// remembers (ide.json), from before sessions said where they were started.
+    pub fn mark_editor_sessions<'a>(&self, ids: impl IntoIterator<Item = &'a str>) {
+        for id in ids {
+            if self.session(id).is_some_and(|s| s.origin != Origin::Editor) {
+                self.inner.mutate(
+                    id,
+                    |cur| CodeSession {
+                        origin: Origin::Editor,
+                        ..cur.clone()
+                    },
+                    true,
+                );
+            }
+        }
     }
 }
 

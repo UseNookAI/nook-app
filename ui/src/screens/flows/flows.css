@@ -2,35 +2,6 @@
 
 .fl-page { display: flex; flex: 1; min-height: 0; }
 
-/* ---------------------------------------------------------------- the rail */
-
-.fl-rail {
-  flex: none; display: flex; flex-direction: column; width: 248px; min-height: 0;
-  padding: var(--space-xl) var(--space-medium); border-right: var(--border-width) solid var(--border);
-}
-.fl-rail > .h6, .fl-rail__blurb { padding: 0 var(--space-small); }
-.fl-rail__blurb { margin-top: var(--space-tiny); }
-.fl-rail__list { display: flex; flex-direction: column; gap: var(--space-micro); margin-top: var(--space-large); }
-.fl-rail__item {
-  display: flex; align-items: flex-start; gap: var(--space-medium); width: 100%;
-  padding: var(--space-small) var(--space-small) calc(var(--space-small) + var(--space-micro));
-  border: none; border-radius: var(--radius-small); background: transparent; color: var(--text-secondary);
-  text-align: left; cursor: pointer;
-}
-.fl-rail__item:hover { background: var(--hover); color: var(--text-primary); }
-.fl-rail__item--selected, .fl-rail__item--selected:hover { background: var(--selected); color: var(--text-primary); }
-.fl-rail__icon {
-  flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-top: 1px;
-  border-radius: var(--radius-small); background: var(--accent-soft); color: var(--primary-variant);
-}
-.fl-rail__text { display: flex; flex-direction: column; min-width: 0; }
-.fl-rail__item--selected .fl-rail__title { font-weight: 600; }
-.fl-rail { transition: width 180ms ease, padding 180ms ease; }
-.fl-rail--narrow { width: 60px; padding-left: var(--space-small); padding-right: var(--space-small); }
-.fl-rail--narrow .fl-rail__title-text, .fl-rail--narrow .fl-rail__blurb, .fl-rail--narrow .fl-rail__text { display: none; }
-.fl-rail--narrow .fl-rail__list { margin-top: calc(var(--space-huge) + var(--space-small)); }
-.fl-rail--narrow .fl-rail__item { justify-content: center; padding: var(--space-small) 0; }
-
 /* ---------------------------------------------------------------- the open flow */
 
 .fl-main { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }

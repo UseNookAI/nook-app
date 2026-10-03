@@ -39,7 +39,7 @@
 //! | command | CodeService |
 //! |---|---|
 //! | `code_snapshot` | [`CodeService::snapshot`] (reads the models folder: call off the async threads) |
-//! | `code_start { folder, text, verify, context }` | [`CodeService::start`]`(folder, text, verify, context)` → the new [`CodeSession`] |
+//! | `code_start { folder, text, verify, context, origin }` | [`CodeService::start_from`]`(origin, folder, text, verify, context)` → the new [`CodeSession`] |
 //! | `code_send { id, text, verify, context }` | [`CodeService::send`] |
 //! | `code_stop { id }` | [`CodeService::stop`] |
 //! | `code_apply { id }` | [`CodeService::apply`] |
@@ -70,6 +70,6 @@ pub use code_service::{
     CodeChanged, CodeService, CodeSnapshot, EditorContext, NextContext, SpeechModel, WorkerChoice,
     THINKING,
 };
-pub use code_session::{Change, CodeSession, Entry, Note, Run, RunContext, Task};
+pub use code_session::{Change, CodeSession, Entry, Note, Origin, Run, RunContext, Task};
 pub use code_store::CodeStore;
 pub use code_workspace::{Readiness, RepositoryState};

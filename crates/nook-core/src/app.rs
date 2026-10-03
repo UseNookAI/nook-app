@@ -108,6 +108,10 @@ impl Nook {
         // Reads the saved sessions: a run that was in flight when Nook closed is marked ended.
         let worker_runtime: Arc<dyn WorkerRuntime> = runtime.clone();
         let code = CodeService::new(home.clone(), worker_runtime, web.clone());
+        // Sessions from before they said where they were started: the ones the Code page's Nook
+        // panel remembers are its own.
+        let panel = crate::ide::IdePrefs::load(&crate::ide::prefs_file(&home));
+        code.mark_editor_sessions(panel.sessions.values().map(String::as_str));
         let video = VideoStudio::for_runtime(runtime.clone());
         let flows = FlowService::for_runtime(runtime.clone());
         let packages = runtime.packages().clone();

@@ -9,7 +9,6 @@ import { Button, ToolbarIcon } from "../../components/Button";
 import { Icon } from "../../components/Icon";
 import { baseName, repoName } from "../../components/paths";
 import { useSnackbar } from "../../components/Snackbar";
-import { codeRecentRepositories, onCodeChanged } from "../../api/code";
 import { chooseFolder } from "../../api/ide";
 import { RepositoryPicker } from "../code/CodeComposer";
 import { ToolbarPill } from "../hub/ComposerControls";
@@ -20,7 +19,8 @@ import { Explorer, type ExplorerAction } from "./Explorer";
 import { ConfirmDialog, NameDialog, UnsavedDialog } from "./IdeDialogs";
 import { HairLine, ResizeHandle } from "./IdeParts";
 import { isUnder } from "./IdeSupport";
-import { clampPanel, ideWorkspace, useWorkspace, type EditorTab, type IdeWorkspace } from "./IdeWorkspace";
+import { clampPanel, ideWorkspace, samePath, useWorkspace, type EditorTab, type IdeWorkspace } from "./IdeWorkspace";
+import { useRepositories } from "./useRepositories";
 import "./ide.css";
 
 export interface IdeScreenProps {
@@ -60,6 +60,21 @@ export function IdeScreen({ onOpenModels }: IdeScreenProps) {
     else setAsk({ kind: "unsaved", tabs: dirty, then });
   };
   const openFolder = (path: string) => withSaved(ws.dirtyTabs(), () => void ws.openFolder(path));
+
+  // What the sidebar asked for: its folder opens (unsaved edits asked about first), with its
+  // session, if it named one, in the Nook panel.
+  useEffect(() => {
+    const asked = ws.takeRequest();
+    if (!asked) return;
+    const showSession = () => {
+      if (asked.session == null || ws.folder == null) return;
+      ws.rememberSession(ws.folder, asked.session);
+      ws.setAssistantOpen(true);
+    };
+    if (ws.folder != null && samePath(ws.folder, asked.folder)) showSession();
+    else withSaved(ws.dirtyTabs(), () => void ws.openFolder(asked.folder).then(showSession));
+  });
+
   const choose = async (start: string | null) => {
     const picked = await chooseFolder(start).catch(() => null);
     if (picked) openFolder(picked);
@@ -199,30 +214,6 @@ export function IdeScreen({ onOpenModels }: IdeScreenProps) {
       )}
     </PagePane>
   );
-}
-
-/** Folders of earlier sessions (knownRepositories), read again when the sessions change. */
-function useRepositories(): string[] {
-  const [repositories, setRepositories] = useState<string[]>([]);
-  useEffect(() => {
-    let alive = true;
-    let timer: number | undefined;
-    const read = () =>
-      codeRecentRepositories()
-        .then((r) => alive && setRepositories(r))
-        .catch(() => undefined);
-    read();
-    const off = onCodeChanged(() => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(read, 1000);
-    });
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-      off();
-    };
-  }, []);
-  return repositories;
 }
 
 // ====================================================================== header and status

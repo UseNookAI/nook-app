@@ -136,7 +136,7 @@ function ColumnStart({
             setStarting(true);
             actions.run(async () => {
               try {
-                const s = await codeStart(folder, t, null, editorContext);
+                const s = await codeStart(folder, t, null, editorContext, "editor");
                 setText("");
                 onStarted(s.id);
               } finally {

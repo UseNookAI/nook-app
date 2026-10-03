@@ -111,7 +111,7 @@ impl CodeStore {
 mod tests {
     use super::*;
     use crate::code::code_session::tests::{note, run};
-    use crate::code::code_session::{Change, Entry, RunContext, Task};
+    use crate::code::code_session::{Change, Entry, Origin, RunContext, Task};
 
     #[test]
     fn sessions_survive_a_round_trip_through_the_store() {
@@ -138,6 +138,7 @@ mod tests {
                 Entry::Run(run("u1", "Did it.")),
                 note("n1", "Applied 1 file.", "ok"),
             ],
+            origin: Origin::Editor,
         };
         store.save(&s).unwrap();
         let back = store.load_all();

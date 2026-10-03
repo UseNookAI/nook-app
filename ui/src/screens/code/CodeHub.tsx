@@ -1,8 +1,8 @@
 /**
- * CodeHub.kt: the app under the title strip. The sidebar on the left (the sessions), and on the
- * right the open page: a session, the Chat start page with its Chat | Video switch, the Code page,
- * or the Nooklets page, as the title strip's Chat, Code and Nooklets (HubNav) or a session
- * choose. The local worker does the changes; the person reads them, asks for more, applies or
+ * CodeHub.kt: the app under the title strip. The sidebar on the left (the open page's chats,
+ * sessions and folders, or Nooklets and runs: CodeSidebar), and on the right the open page: a
+ * session, the Chat start page with its Chat | Video switch, the Code page, or the Nooklets page,
+ * as the title strip's Chat, Code and Nooklets (HubNav) or a session choose. The local worker does the changes; the person reads them, asks for more, applies or
  * discards.
  */
 import { lazy, Suspense, useSyncExternalStore } from "react";
@@ -94,6 +94,7 @@ export function CodeHub({ isSidebarCollapsed, onSettings }: CodeHubProps) {
   return (
     <div className="nc-hub">
       <CodeSidebar
+        section={memory.flows ? "flows" : memory.code ? "code" : "chat"}
         sessions={snapshot.sessions}
         selectedId={memory.flows || memory.code ? null : memory.selected}
         isCollapsed={isSidebarCollapsed}

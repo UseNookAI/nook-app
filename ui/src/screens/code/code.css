@@ -250,3 +250,31 @@
 .nc-column__lead { margin-top: var(--space-tiny); }
 .nc-column__note { margin-top: var(--space-small); }
 .nc-column__composer { flex: none; padding: var(--space-small); }
+
+/* The sidebar's headed lists on the Code and Nooklets pages, scrolling as one column. */
+.nc-sidebar__scroll { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; display: flex; flex-direction: column; }
+.nc-sidebar__list { display: flex; flex-direction: column; gap: var(--space-micro); }
+/* A run or a folder: a session row that is a button. */
+button.nc-session-item { width: 100%; border: none; background: transparent; color: inherit; font: inherit; text-align: left; }
+button.nc-session-item:hover, button.nc-session-item:focus-visible { background: var(--hover); }
+button.nc-session-item.nc-session-item--active { background: var(--selected); }
+
+/* A Nooklet: its icon on a soft square, its name and what it does. Folded, the icon alone. */
+.nc-nooklet-item {
+  flex: none; display: flex; align-items: center; gap: var(--space-small); width: 100%;
+  padding: var(--space-tiny); border: none; border-radius: var(--radius-small);
+  background: transparent; color: var(--text-secondary); text-align: left; cursor: pointer; outline: none;
+}
+.nc-nooklet-item:hover, .nc-nooklet-item:focus-visible { background: var(--hover); color: var(--text-primary); }
+.nc-nooklet-item--active, .nc-nooklet-item--active:hover { background: var(--selected); color: var(--text-primary); }
+.nc-nooklet-item__icon {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px;
+  border-radius: var(--radius-small); background: var(--accent-soft); color: var(--primary-variant);
+}
+.nc-nooklet-item--find { margin-bottom: var(--space-tiny); }
+.nc-nooklet-item--find .nc-nooklet-item__icon { background: transparent; border: var(--border-width) solid var(--border-strong); color: var(--text-secondary); }
+.nc-nooklet-item__text { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.nc-nooklet-item__title { color: inherit; }
+.nc-nooklet-item--active .nc-nooklet-item__title { font-weight: 600; }
+.nc-sidebar--collapsed .nc-nooklet-item { justify-content: center; padding: var(--space-tiny) 0; }
+.nc-sidebar--collapsed .nc-sidebar__list:first-child { margin-top: var(--space-large); }

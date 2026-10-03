@@ -96,6 +96,7 @@ export class IdeWorkspace {
   readonly host: HTMLDivElement;
 
   private sessions: Record<string, string> = {};
+  private request: { folder: string; session: string | null } | null = null;
   private version = 0;
   private listeners = new Set<() => void>();
   private pendingPrefs: IdePrefs | null = null;
@@ -463,7 +464,29 @@ export class IdeWorkspace {
 
   rememberSession(dir: string, id: string) {
     this.sessions = { ...this.sessions, [dir]: id };
+    this.changed();
     this.persist();
+  }
+
+  /** The session in the Nook panel for the open folder. */
+  panelSession(): string | null {
+    return this.folder ? this.sessionFor(this.folder) : null;
+  }
+
+  /**
+   * Asks the page to open `folder` with `session` (or none) in the Nook panel: the sidebar's way
+   * in. The page asks about unsaved edits first ([takeRequest]).
+   */
+  requestOpen(folder: string, session: string | null) {
+    this.request = { folder, session };
+    this.changed();
+  }
+
+  /** The sidebar's last request, once. */
+  takeRequest(): { folder: string; session: string | null } | null {
+    const r = this.request;
+    this.request = null;
+    return r;
   }
 
   /** The active file's path within the folder, with the folder's slashes made plain. */
@@ -559,6 +582,12 @@ registerLeaveCheck("code", () => (memory ? memory.dirtyTabs().map((t) => `${t.na
 export function ideWorkspace(): IdeWorkspace {
   memory ??= new IdeWorkspace();
   return memory;
+}
+
+/** Whether two folder paths name the same folder (Windows: case and slashes do not matter). */
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => p.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  return norm(a) === norm(b);
 }
 
 /** Re-renders the caller whenever the workspace changes. */
