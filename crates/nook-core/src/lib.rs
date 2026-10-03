@@ -17,6 +17,7 @@ pub mod busy;
 pub mod events;
 pub mod gateway_port;
 pub mod home;
+pub mod instance;
 pub mod logging;
 pub mod migrate;
 pub mod nooklets;

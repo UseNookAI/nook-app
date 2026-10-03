@@ -6,12 +6,20 @@
 //! screen and then shows it, so it never jumps from one size to another in view. Should the UI not
 //! get that far (a script error, a dev server that is not up), Rust shows it after
 //! [`SHOW_FALLBACK`] anyway.
+//!
+//! One Nook at a time (`nook_core::instance`): copies that start in the same moment wait for the
+//! first one's window and hand over to it, and a Nook whose window never loads its page (WebView2
+//! refusing it) hands over to a fresh copy of itself within [`WINDOW_DEADLINE`] rather than staying
+//! on with nothing on screen.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use nook_core::instance::{self, Turn};
 use nook_core::update::handover;
 use nook_core::{Home, Nook};
+use tauri::webview::PageLoadEvent;
 use tauri::{Emitter, Manager};
 
 mod commands;
@@ -20,8 +28,20 @@ pub struct AppState(pub Arc<Nook>);
 
 /// How long the UI has to show the window before Rust shows it itself.
 const SHOW_FALLBACK: Duration = Duration::from_secs(8);
+/// How long the main window has to load its page before Nook counts it as failed.
+const WINDOW_DEADLINE: Duration = Duration::from_secs(30);
+/// How long a relaunched copy waits for the one it replaces to end.
+const REPLACED_WAIT: Duration = Duration::from_secs(20);
+
+/// Set once the main window has loaded its page.
+static PAGE_LOADED: AtomicBool = AtomicBool::new(false);
 
 pub fn run() {
+    let args: Vec<String> = std::env::args().collect();
+    // Relaunched after a window that never loaded: the copy it replaces ends first.
+    if let Some(pid) = instance::after_pid(&args) {
+        instance::wait_for_exit(pid, REPLACED_WAIT);
+    }
     let home = Home::resolve().expect("Nook cannot create its home folder");
     nook_core::logging::init(&home);
     // Started where the Kotlin Nook was installed (its updater's restart after installing this
@@ -34,6 +54,13 @@ pub fn run() {
         nook_core::build_info::BuildInfo::current().label(),
         home.root().display()
     );
+    let context = tauri::generate_context!();
+    // HandOver: the single-instance plugin below gives this start to the running copy and ends it.
+    if instance::wait_turn(&context.config().identifier) == Turn::GiveUp {
+        tracing::warn!("Another Nook is starting but its window never came; this start ends");
+        return;
+    }
+    let relaunched = instance::relaunched(&args);
     let nook = Nook::new(home).expect("Nook could not start");
     // An installed copy removes the Nook.exe the installer left there, once nothing needs it.
     if nook_core::update::install::relaunch_target().is_some() {
@@ -51,6 +78,11 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .on_page_load(|webview, payload| {
+            if webview.label() == "main" && payload.event() == PageLoadEvent::Finished {
+                PAGE_LOADED.store(true, Ordering::SeqCst);
+            }
+        })
         .manage(AppState(nook.clone()))
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -95,6 +127,36 @@ pub fn run() {
                     }
                 });
             }
+
+            // A window that never loads its page would leave Nook on with nothing on screen, and
+            // every later start handed to it: a fresh copy takes over instead, once; when that
+            // one fails too, a message says so and it ends.
+            let watched = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(WINDOW_DEADLINE).await;
+                if PAGE_LOADED.load(Ordering::SeqCst) {
+                    return;
+                }
+                if relaunched {
+                    tracing::error!("The window did not load its page again; Nook ends");
+                    let _ = tauri::async_runtime::spawn_blocking(|| {
+                        instance::alert(
+                            "Nook",
+                            "Nook could not open its window. Restart Windows, then open Nook again.",
+                        )
+                    })
+                    .await;
+                } else {
+                    tracing::error!(
+                        "The window did not load its page within {}s; a fresh Nook takes over",
+                        WINDOW_DEADLINE.as_secs()
+                    );
+                    if let Err(e) = instance::relaunch() {
+                        tracing::error!("Could not start a fresh Nook: {e}");
+                    }
+                }
+                watched.exit(0);
+            });
 
             let started = nook.clone();
             tauri::async_runtime::spawn(async move {
@@ -269,7 +331,7 @@ pub fn run() {
             commands::capture::capture_reveal,
             commands::capture::capture_open_folder,
         ])
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("error while building Nook")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
